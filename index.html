@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Caja Local Web</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#202020">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<audio id="cashSound" src="assets/cash_register.mp3" preload="auto"></audio>
+
+<section id="loginView" class="login-body">
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <img src="assets/logo.png" class="logo" alt="Logo">
+    <h1>Inicio de sesion</h1>
+    <label>Usuario</label>
+    <select id="loginUser" required>
+      <option value="admin">admin</option>
+      <option value="dev">dev</option>
+      <option value="turno_manana">turno_manana</option>
+      <option value="turno_tarde">turno_tarde</option>
+    </select>
+    <label>Contrasena</label>
+    <input id="loginPass" type="password" required autofocus value="2711">
+    <div class="login-two">
+      <div>
+        <label>Fecha de trabajo</label>
+        <input id="loginDate" type="date">
+      </div>
+      <div>
+        <label>Turno</label>
+        <select id="loginShift">
+          <option value="AM">AM - Manana</option>
+          <option value="PM">PM - Tarde</option>
+        </select>
+      </div>
+    </div>
+    <label>Cambio inicial en caja</label>
+    <input id="openingCash" placeholder="Puede ser 0" value="0">
+    <button class="big primary" type="submit">INGRESAR</button>
+    <div class="msg ok">Usuarios iniciales: admin/dev 2711, turno_manana/turno_tarde 1234.</div>
+  </form>
+</section>
+
+<section id="appView" class="hidden">
+  <header class="topbar">
+    <div class="brand">Caja Local Web</div>
+    <div class="user" id="sessionInfo"></div>
+    <nav id="tabs"></nav>
+    <button id="logoutBtn" class="logout">Cerrar sesion</button>
+  </header>
+
+  <section id="workShiftBar" class="work-shift-bar">
+    <form>
+      <b>Corregir fecha/turno de trabajo:</b>
+      <input id="workDateInput" type="date">
+      <select id="workShiftInput">
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+      <button id="applyWorkShift" type="button">Aplicar</button>
+    </form>
+  </section>
+
+  <main>
+    <section id="tabCaja" class="tab-page">
+      <section class="cash-grid">
+        <div class="panel sale">
+          <div class="sale-title-row">
+            <h1>VENTA</h1>
+            <span id="submitState" class="state-pill">Listo</span>
+          </div>
+          <form id="saleForm" autocomplete="off">
+            <input id="saleAmount" class="amount" placeholder="Monto" autofocus>
+            <div id="quickButtons" class="quick-sale-buttons"></div>
+            <select id="salePaymentSelect">
+              <option>Efectivo</option>
+              <option>Transferencia</option>
+            </select>
+            <small class="hint">Atajos: Enter = metodo seleccionado, E = efectivo, T = transferencia.</small>
+            <button id="saveSaleBtn" class="big success" type="submit">REGISTRAR VENTA</button>
+          </form>
+
+          <form class="undo-form">
+            <button id="undoBtn" class="undo-btn" type="button">Deshacer ultima venta</button>
+          </form>
+
+          <details class="quick-config">
+            <summary>Modo de venta</summary>
+            <div class="mode-switch">
+              <button id="quickModeBtn" class="active" type="button">Modo rapido</button>
+              <button id="basketModeBtn" type="button">Modo productos</button>
+            </div>
+          </details>
+
+          <section id="basketPanel" class="basket-panel hidden">
+            <div id="productGrid" class="product-grid"></div>
+            <div class="basket-box">
+              <div class="basket-head">
+                <strong>Canasta</strong>
+                <button id="clearBasketBtn" class="small" type="button">Vaciar</button>
+              </div>
+              <div id="basketItems" class="mini-list"></div>
+              <div class="calc-total"><span>Total</span><b id="basketTotal">$ 0,00</b></div>
+              <button id="chargeBasketBtn" class="big success" type="button">Cobrar canasta</button>
+            </div>
+          </section>
+
+          <h3 class="last-title">Ultimas ventas</h3>
+          <div id="lastSales" class="mini-list last-sales-list"></div>
+
+          <details class="sale-calc-wrap">
+            <summary>Calculadora de cobro</summary>
+            <div class="sale-calc">
+              <div class="calc-row">
+                <input id="calcAmount" placeholder="Importe a sumar">
+                <button id="calcAdd" type="button">Sumar</button>
+                <button id="calcClear" type="button">Borrar</button>
+              </div>
+              <div class="calc-quick">
+                <button type="button" data-calc="500">+500</button>
+                <button type="button" data-calc="1000">+1000</button>
+                <button type="button" data-calc="2000">+2000</button>
+                <button type="button" data-calc="5000">+5000</button>
+              </div>
+              <div id="calcList" class="calc-ticket"></div>
+              <div class="calc-count"><span>Items</span><b id="calcItemCount">0</b></div>
+              <div class="calc-total"><span>Total a cobrar</span><b id="calcTotal">$ 0,00</b></div>
+              <div class="calc-row">
+                <input id="calcPaid" placeholder="Con cuanto paga">
+                <button id="calcUse" type="button">Usar total en venta</button>
+              </div>
+              <div class="calc-change"><span>Vuelto</span><b id="calcChange">$ 0,00</b></div>
+            </div>
+          </details>
+        </div>
+
+        <div class="panel expense side-status-panel">
+          <h1>CAJA</h1>
+          <section class="withdraw-strip-local">
+            <form id="withdrawForm" autocomplete="off">
+              <b>Retiro de caja</b>
+              <input id="withdrawAmount" placeholder="Monto">
+              <input id="withdrawDescription" placeholder="Comentario opcional">
+              <button>Registrar retiro</button>
+            </form>
+          </section>
+          <div class="msg warn">Los gastos ya no se cargan en la pantalla principal. Usar Mensual para proveedores, sueldos, alquiler, servicios y otros egresos grandes.</div>
+          <div id="todaySummary" class="summary-grid"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="tabCierres" class="tab-page hidden">
+      <h1>Cierre guiado</h1>
+      <section class="close-dashboard">
+        <div class="close-card expected"><span>Efectivo que deberia haber</span><b id="expectedCashCard">$ 0,00</b><small>Caja inicial + ventas efectivo - retiros</small></div>
+        <div class="close-card transfer"><span>Transferencias que deberian estar</span><b id="expectedTransferCard">$ 0,00</b><small>Total vendido por transferencia</small></div>
+      </section>
+      <section class="report-box">
+        <h2>Resumen seleccionado</h2>
+        <div id="closureExpected" class="summary-grid"></div>
+      </section>
+      <section class="report-box">
+        <h2>Nuevo cierre paso a paso</h2>
+        <form id="closureForm" class="close-form">
+          <label>Efectivo contado</label>
+          <input id="countedCash" value="0">
+          <label>Transferencia / Mercado Pago contado</label>
+          <input id="countedTransfer" value="0">
+          <div class="live-result">
+            <div>Diferencia efectivo: <b id="cashDiff">$ 0,00</b></div>
+            <div>Diferencia transferencia: <b id="transferDiff">$ 0,00</b></div>
+          </div>
+          <label>Observaciones</label>
+          <input id="closureNotes" placeholder="Obligatorio si hay diferencia">
+          <button class="big primary">Guardar cierre</button>
+        </form>
+      </section>
+      <section class="report-box">
+        <h2>Ultimos cierres</h2>
+        <div id="closuresList" class="table-scroll"></div>
+      </section>
+    </section>
+
+    <section id="tabMetricas" class="tab-page hidden">
+      <h1>Metricas</h1>
+      <form class="filter">
+        <label>Rango</label>
+        <select id="metricsRange">
+          <option value="15">Ultimos 15 dias</option>
+          <option value="30" selected>Ultimos 30 dias</option>
+          <option value="90">Ultimos 90 dias</option>
+          <option value="365">1 ano</option>
+        </select>
+      </form>
+      <section id="metricsCards" class="metrics-cards"></section>
+      <section class="report-box"><h2>Ventas por dia</h2><canvas id="salesChart" height="190"></canvas></section>
+    </section>
+
+    <section id="tabMovimientos" class="tab-page hidden">
+      <h1>Movimientos</h1>
+      <section class="report-box"><div id="movementsList" class="table-scroll"></div></section>
+    </section>
+
+    <section id="tabMensual" class="tab-page hidden">
+      <h1>Mensual</h1>
+      <section class="report-box">
+        <form class="filter"><label>Mes</label><input id="monthPicker" type="month"></form>
+        <div id="monthlySummary" class="summary-grid"></div>
+      </section>
+      <section class="cash-grid monthly-grid">
+        <div class="panel expense">
+          <h1>MOVIMIENTO</h1>
+          <form id="monthlyForm">
+            <select id="monthlyType"><option value="INCOME">Ingreso extra</option><option value="BIG_EXPENSE">Gasto grande</option></select>
+            <input id="monthlyDate" type="date">
+            <input id="monthlyAmount" placeholder="Monto">
+            <select id="monthlyCategory"></select>
+            <input id="monthlyDescription" placeholder="Descripcion">
+            <select id="monthlyPayment"><option>Efectivo</option><option>Transferencia</option><option>Otro</option></select>
+            <button class="big danger">GUARDAR MENSUAL</button>
+          </form>
+        </div>
+        <div class="report-box">
+          <h2>Ingresos y gastos grandes</h2>
+          <div id="monthlyEntries" class="mini-list"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="tabProduccion" class="tab-page hidden">
+      <h1>Produccion</h1>
+      <section class="cash-grid monthly-grid">
+        <div class="panel sale">
+          <h1>CARGA</h1>
+          <form id="productionForm">
+            <input id="productionDate" type="date">
+            <input id="productionName" placeholder="Producto">
+            <select id="productionUnit"><option>kg</option><option>unidad</option><option>docena</option></select>
+            <input id="productionEntered" placeholder="Entrado / producido">
+            <input id="productionLeft" placeholder="Sobro">
+            <button class="big success">AGREGAR RENGLON</button>
+          </form>
+        </div>
+        <div class="report-box">
+          <form class="filter"><label>Fecha</label><input id="productionFilterDate" type="date"></form>
+          <h2>Resumen</h2>
+          <div id="productionList" class="mini-list"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="tabActividad" class="tab-page hidden">
+      <h1>Actividad</h1>
+      <section class="report-box"><div id="auditList" class="table-scroll"></div></section>
+    </section>
+
+    <section id="tabUsuarios" class="tab-page hidden">
+      <h1>Usuarios</h1>
+      <section class="report-box">
+        <form id="userForm" class="user-form">
+          <input id="newUsername" placeholder="Usuario">
+          <input id="newDisplayName" placeholder="Nombre visible">
+          <select id="newRole"><option value="employee">Empleado</option><option value="admin">Admin</option><option value="dev">Developer</option></select>
+          <input id="newPassword" placeholder="PIN o clave">
+          <button>Crear</button>
+        </form>
+      </section>
+      <section class="report-box"><div id="usersList" class="table-scroll"></div></section>
+    </section>
+
+    <section id="tabDev" class="tab-page hidden">
+      <h1>Dev</h1>
+      <section class="report-box">
+        <button id="exportBtn" class="primary">Exportar JSON</button>
+        <div id="exportBox" class="export-box hidden"></div>
+      </section>
+    </section>
+  </main>
+</section>
+
+<div id="toastHost" class="toast-container"></div>
+<script src="app.js"></script>
+</body>
+</html>
