@@ -12,15 +12,24 @@
   var saleMode = "quick";
   var basket = [];
   var calcItems = [];
+  var selectedProduct = null;
+  var autoSaleTimer = null;
+  var autoTicketTimer = null;
+  var lastSaleAt = 0;
+  var editorProducts = [];
+  var editImageData = "";
+  var pendingUndoSale = null;
   var quickButtons = [500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 8000, 10000];
   var monthlyCategories = ["Proveedores", "Sueldos", "Alquiler", "Servicios", "Arreglos", "Equipamiento", "Insumos", "Otro"];
   var defaultProducts = [
-    ["Facturas", 500, "unidad", "Dulce"],
     ["Pan", 2000, "kg", "Panaderia"],
+    ["Facturas", 500, "unidad", "Dulce"],
     ["Bizcochos", 2600, "kg", "Panaderia"],
-    ["Tortas", 8500, "unidad", "Pasteleria"],
-    ["Sandwiches", 1800, "unidad", "Salado"],
-    ["Prepizzas", 2200, "unidad", "Salado"]
+    ["Empanadas", 900, "unidad", "Salado"],
+    ["Sanguches de Miga", 1800, "unidad", "Salado"],
+    ["Masas Secas", 4200, "kg", "Pasteleria"],
+    ["Pizzas", 2200, "unidad", "Salado"],
+    ["Sodas/Drinks", 1500, "unidad", "Bebidas"]
   ];
 
   function $(id) { return document.getElementById(id); }
@@ -37,6 +46,11 @@
     else v = v.replace(",", ".");
     var n = Number(v);
     return isFinite(n) ? Math.round(n * 100) / 100 : 0;
+  }
+  function escapeHtml(v) {
+    return String(v == null ? "" : v).replace(/[&<>"']/g, function (ch) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch];
+    });
   }
   function toast(msg) {
     var el = document.createElement("div");
@@ -116,9 +130,12 @@
       return Promise.all(tasks);
     }).then(function () {
       return all("products").then(function (products) {
-        if (products.length) return;
-        return Promise.all(defaultProducts.map(function (p) {
-          return add("products", { id: uid(), name: p[0], price: p[1], unitType: p[2], category: p[3], active: true, createdAt: nowIso() });
+        var existing = {};
+        products.forEach(function (p) { existing[p.name.toLowerCase()] = true; });
+        return Promise.all(defaultProducts.filter(function (p) {
+          return !existing[p[0].toLowerCase()];
+        }).map(function (p) {
+          return add("products", { id: uid(), name: p[0], price: p[1], unitType: p[2], priceUnit: p[2], category: p[3], active: true, sortOrder: products.length + defaultProducts.indexOf(p), createdAt: nowIso() });
         }));
       });
     });
@@ -147,10 +164,10 @@
   function showApp() {
     $("loginView").classList.add("hidden");
     $("appView").classList.remove("hidden");
-    $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> · Fecha: <b>" + currentSession.businessDate + "</b> · Turno: <b>" + currentSession.shiftType + "</b>";
+    $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
     $("workDateInput").value = currentSession.businessDate;
     $("workShiftInput").value = currentSession.shiftType;
-    $("workShiftBar").style.display = isAdmin() ? "block" : "none";
+    $("workShiftBar").style.display = "none";
     buildTabs();
     setDates();
     renderAll();
@@ -197,17 +214,21 @@
   }
   function setSubmitting(on) {
     isSubmittingSale = on;
-    $("saveSaleBtn").disabled = on;
-    $("chargeBasketBtn").disabled = on;
-    $("saleAmount").disabled = on;
-    $("submitState").textContent = on ? "Registrando..." : "Listo";
-    $("submitState").classList.toggle("busy", on);
+    if ($("saveSaleBtn")) $("saveSaleBtn").disabled = on;
+    if ($("chargeBasketBtn")) $("chargeBasketBtn").disabled = on;
+    if ($("saleAmount")) $("saleAmount").disabled = on;
+    if ($("submitState")) $("submitState").textContent = on ? "Registrando..." : "Listo";
+    if ($("submitState")) $("submitState").classList.toggle("busy", on);
   }
   function saveSale(amount, mode, details) {
     if (isSubmittingSale) return Promise.resolve();
+    if (Date.now() - lastSaleAt < 900) return Promise.resolve();
     amount = Number(amount || 0);
     if (amount <= 0) { toast("Ingrese un monto valido"); return Promise.resolve(); }
     setSubmitting(true);
+    lastSaleAt = Date.now();
+    clearTimeout(autoSaleTimer);
+    clearTimeout(autoTicketTimer);
     playSound();
     var tr = {
       id: uid(), type: "SALE", amount: amount, paymentMethod: PAYMENT, businessDate: currentSession.businessDate,
@@ -215,7 +236,7 @@
       createdAt: nowIso(), deleted: false, saleMode: mode || "FAST"
     };
     return add("transactions", tr).then(function () {
-      if (mode === "PRODUCT_BASKET" && details && details.length) {
+      if (details && details.length) {
         var basketId = uid();
         tr.basketId = basketId;
         return add("transactions", tr).then(function () {
@@ -232,16 +253,21 @@
     }).then(function () {
       return audit("SALE_CREATED", money(amount) + " " + PAYMENT + " " + (mode || "FAST"), amount > 60000 ? "warning" : "normal");
     }).then(function () {
-      $("saleAmount").value = "";
+      if ($("saleAmount")) $("saleAmount").value = "";
       basket = [];
+      if ($("ticketPaid")) $("ticketPaid").value = "";
       renderAll();
       toast("Venta registrada");
     }).finally(function () {
-      setTimeout(function () { setSubmitting(false); $("saleAmount").focus(); }, 220);
+      setTimeout(function () {
+        setSubmitting(false);
+        if ($("saleAmount")) $("saleAmount").focus();
+      }, 220);
     });
   }
   function saveQuickSale(e) {
     e.preventDefault();
+    clearTimeout(autoSaleTimer);
     saveSale(parseMoney($("saleAmount").value), "FAST");
   }
   function undoLastSale() {
@@ -250,88 +276,106 @@
         return t.type === "SALE" && !t.deleted && t.sessionId === currentSession.id;
       }).sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); });
       if (!sales[0]) { toast("No hay venta para deshacer"); return; }
-      sales[0].deleted = true;
-      sales[0].deleteReason = "Undo ultima venta";
-      add("transactions", sales[0]).then(function () {
-        return audit("SALE_UNDONE", money(sales[0].amount), "warning");
-      }).then(renderAll);
+      openUndoModal(sales[0]);
+    });
+  }
+  function openUndoModal(sale) {
+    pendingUndoSale = sale;
+    $("undoSaleSummary").textContent = new Date(sale.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }) + " | " + sale.paymentMethod + " | " + money(sale.amount);
+    $("undoReason").value = "";
+    $("undoModal").classList.remove("hidden");
+    $("undoReason").focus();
+  }
+  function closeUndoModal() {
+    $("undoModal").classList.add("hidden");
+    pendingUndoSale = null;
+  }
+  function confirmUndoSale(e) {
+    e.preventDefault();
+    if (!pendingUndoSale) { closeUndoModal(); return; }
+    var reason = $("undoReason").value.trim();
+    if (!reason) { toast("Ingrese el motivo"); $("undoReason").focus(); return; }
+    undoSaleById(pendingUndoSale.id, reason);
+  }
+  function undoSaleById(id, reason) {
+    all("transactions").then(function (trs) {
+      var sale = trs.filter(function (t) {
+        return t.id === id && t.type === "SALE" && !t.deleted && t.sessionId === currentSession.id;
+      })[0];
+      if (!sale) { toast("Venta no encontrada"); return; }
+      sale.deleted = true;
+      sale.deleteReason = reason;
+      sale.reviewRequired = true;
+      add("transactions", sale).then(function () {
+        return audit("SALE_UNDONE_REVIEW_REQUIRED", money(sale.amount) + " | Motivo: " + reason, "critical");
+      }).then(function () {
+        closeUndoModal();
+        renderAll();
+        toast("Venta deshecha y marcada para revision");
+      });
     });
   }
   function saveWithdrawal(e) {
     e.preventDefault();
     var amount = parseMoney($("withdrawAmount").value);
     if (amount <= 0) { toast("Ingrese monto de retiro"); return; }
+    var who = $("withdrawBy") ? $("withdrawBy").value.trim() : "";
+    if (!who) { toast("Indique quien retiro el dinero"); $("withdrawBy").focus(); return; }
+    var note = $("withdrawDescription").value.trim();
     add("transactions", {
       id: uid(), type: "WITHDRAWAL", amount: amount, paymentMethod: "Efectivo",
-      description: $("withdrawDescription").value.trim(), businessDate: currentSession.businessDate,
+      description: (who ? "Retiro: " + who : "Retiro") + (note ? " - " + note : ""), businessDate: currentSession.businessDate,
       shiftType: currentSession.shiftType, userId: currentUser.id, sessionId: currentSession.id,
       createdAt: nowIso(), deleted: false
     }).then(function () {
       $("withdrawAmount").value = "";
+      if ($("withdrawBy")) $("withdrawBy").value = "";
       $("withdrawDescription").value = "";
       return audit("WITHDRAWAL_CREATED", money(amount));
-    }).then(renderAll);
+    }).then(function () {
+      closeWithdrawModal();
+      renderAll();
+      toast("Retiro registrado");
+    });
   }
 
   function renderCaja() {
-    $("quickButtons").innerHTML = quickButtons.map(function (v) {
+    if ($("quickButtons")) $("quickButtons").innerHTML = quickButtons.map(function (v) {
       return "<button type='button' data-sale='" + v + "'>" + money(v) + "</button>";
     }).join("");
-    document.querySelectorAll("[data-sale]").forEach(function (b) {
-      b.onclick = function () { $("saleAmount").value = b.dataset.sale; $("saleAmount").focus(); };
-    });
     all("transactions").then(function (trs) {
       var sales = trs.filter(function (t) { return t.type === "SALE" && !t.deleted; })
-        .sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); }).slice(0, 15);
+        .sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); }).slice(0, 10);
       $("lastSales").innerHTML = sales.length ? sales.map(function (s) {
-        return card("<b>" + new Date(s.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }) + " | " + money(s.amount) + "</b><small>" + s.paymentMethod + " | " + s.saleMode + "</small>");
+        return card("<div class='last-sale-row'><b>" + new Date(s.createdAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }) + "</b><span>" + s.paymentMethod + "</span><strong>" + money(s.amount) + "</strong></div>");
       }).join("") : empty("Sin ventas todavia");
-      var todayRows = trs.filter(function (t) { return !t.deleted && t.businessDate === currentSession.businessDate; });
-      if ($("todaySummary")) $("todaySummary").innerHTML = summary([
-        ["Ventas efectivo", money(sum(todayRows, function (t) { return t.type === "SALE" && t.paymentMethod === "Efectivo"; }))],
-        ["Transferencias", money(sum(todayRows, function (t) { return t.type === "SALE" && t.paymentMethod === "Transferencia"; }))],
-        ["Retiros", money(sum(todayRows, function (t) { return t.type === "WITHDRAWAL"; }))],
-        ["Clientes", todayRows.filter(function (t) { return t.type === "SALE"; }).length]
-      ]);
     });
     renderBasket();
-    renderCalc();
+    renderProducts();
   }
   function renderBasket() {
-    all("products").then(function (products) {
-      products = products.filter(function (p) { return p.active; });
-      $("productGrid").innerHTML = products.map(function (p) {
-        return "<button class='product-card' type='button' data-product='" + p.id + "'><b>" + p.name + "</b><span>" + money(p.price) + " / " + p.unitType + "</span></button>";
-      }).join("");
-      document.querySelectorAll("[data-product]").forEach(function (btn) {
-        btn.onclick = function () {
-          var p = products.filter(function (x) { return x.id === btn.dataset.product; })[0];
-          var q = parseMoney(prompt("Cantidad de " + p.name, "1"));
-          if (q <= 0) return;
-          basket.push({ productId: p.id, productName: p.name, quantity: q, unitPrice: p.price, subtotal: q * p.price });
-          renderBasket();
-        };
-      });
-    });
     var total = basket.reduce(function (a, b) { return a + b.subtotal; }, 0);
-    $("basketTotal").textContent = money(total);
+    if ($("basketTotal")) $("basketTotal").textContent = money(total);
+    if ($("ticketChange")) $("ticketChange").textContent = money(parseMoney($("ticketPaid") && $("ticketPaid").value) - total);
     $("basketItems").innerHTML = basket.length ? basket.map(function (it, i) {
-      return "<div class='compact-row'><span>" + it.quantity + " x " + it.productName + "<small>" + money(it.subtotal) + "</small></span><button class='small danger' data-remove-basket='" + i + "'>x</button></div>";
-    }).join("") : empty("Canasta vacia");
+      return "<div class='compact-row ticket-line'><span><b>" + escapeHtml(it.productName) + "</b><small>" + it.quantity + " " + escapeHtml(it.unitType || "") + " x " + money(it.unitPrice) + "</small></span><strong>" + money(it.subtotal) + "</strong><button class='small danger' data-remove-basket='" + i + "'>x</button></div>";
+    }).join("") : empty("Ticket vacio");
     document.querySelectorAll("[data-remove-basket]").forEach(function (b) {
-      b.onclick = function () { basket.splice(Number(b.dataset.removeBasket), 1); renderBasket(); };
+      b.onclick = function () { basket.splice(Number(b.dataset.removeBasket), 1); renderBasket(); scheduleTicketAutoSave(); };
     });
+    scheduleTicketAutoSave();
   }
   function chargeBasket() {
     var total = basket.reduce(function (a, b) { return a + b.subtotal; }, 0);
+    if (total <= 0) { toast("Ticket vacio"); return; }
     saveSale(total, "PRODUCT_BASKET", basket.slice());
   }
   function setSaleMode(mode) {
     saleMode = mode;
-    $("quickModeBtn").classList.toggle("active", mode === "quick");
-    $("basketModeBtn").classList.toggle("active", mode === "basket");
-    $("saleForm").classList.toggle("hidden", mode === "basket");
-    $("basketPanel").classList.toggle("hidden", mode !== "basket");
+    if ($("quickModeBtn")) $("quickModeBtn").classList.toggle("active", mode === "quick");
+    if ($("basketModeBtn")) $("basketModeBtn").classList.toggle("active", mode === "basket");
+    if ($("saleForm")) $("saleForm").classList.toggle("hidden", false);
+    if ($("basketPanel")) $("basketPanel").classList.toggle("hidden", true);
   }
 
   function renderCalc() {
@@ -350,6 +394,284 @@
     if (v > 0) calcItems.push(v);
     $("calcAmount").value = "";
     renderCalc();
+  }
+
+  function productIcon(name) {
+    var n = String(name || "").toLowerCase();
+    if (n.indexOf("pan") >= 0) return "PAN";
+    if (n.indexOf("fact") >= 0) return "DOC";
+    if (n.indexOf("biz") >= 0) return "KG";
+    if (n.indexOf("emp") >= 0) return "EMP";
+    if (n.indexOf("miga") >= 0 || n.indexOf("sand") >= 0) return "SM";
+    if (n.indexOf("masa") >= 0) return "MS";
+    if (n.indexOf("pizza") >= 0) return "PZ";
+    if (n.indexOf("drink") >= 0 || n.indexOf("soda") >= 0) return "DR";
+    return "PR";
+  }
+  function productImage(product) {
+    if (product && product.imageData) {
+      return "<span class='product-img has-photo'><img src='" + escapeHtml(product.imageData) + "' alt=''></span>";
+    }
+    return "<span class='product-img'>" + productIcon(product && product.name) + "</span>";
+  }
+  function renderProducts() {
+    all("products").then(function (products) {
+      products = products.filter(function (p) { return p.active; }).sort(function (a, b) {
+        return Number(a.sortOrder || 0) - Number(b.sortOrder || 0) || String(a.name).localeCompare(String(b.name));
+      });
+      $("productGrid").innerHTML = products.map(function (p) {
+        return "<button class='product-card' type='button' draggable='true' data-product='" + p.id + "'>" + productImage(p) + "<b>" + escapeHtml(p.name) + "</b><small>" + money(p.price) + " / " + escapeHtml(p.priceUnit || p.unitType) + "</small></button>";
+      }).join("") + "<button class='product-card product-edit-card' id='openProductEditorBtn' type='button'><span class='product-img'>EDIT</span><b>Editar</b><small>Agregar, modificar o borrar</small></button>";
+      document.querySelectorAll("[data-product]").forEach(function (btn) {
+        btn.onclick = function () {
+          if (btn.dataset.dragging === "1") { btn.dataset.dragging = "0"; return; }
+          var p = products.filter(function (x) { return x.id === btn.dataset.product; })[0];
+          openProductModal(p);
+        };
+      });
+      bindProductDrag(products);
+      $("openProductEditorBtn").onclick = openProductEditor;
+    });
+  }
+  function bindProductDrag(products) {
+    var draggedId = "";
+    document.querySelectorAll("[data-product]").forEach(function (btn) {
+      btn.ondragstart = function (e) {
+        draggedId = btn.dataset.product;
+        btn.classList.add("dragging");
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      };
+      btn.ondragend = function () {
+        btn.classList.remove("dragging");
+        btn.dataset.dragging = "1";
+        setTimeout(function () { btn.dataset.dragging = "0"; }, 80);
+      };
+      btn.ondragover = function (e) {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        btn.classList.add("drop-target");
+      };
+      btn.ondragleave = function () { btn.classList.remove("drop-target"); };
+      btn.ondrop = function (e) {
+        e.preventDefault();
+        btn.classList.remove("drop-target");
+        if (!draggedId || draggedId === btn.dataset.product) return;
+        reorderProducts(products, draggedId, btn.dataset.product);
+      };
+    });
+  }
+  function reorderProducts(products, draggedId, targetId) {
+    var list = products.slice();
+    var from = list.findIndex(function (p) { return p.id === draggedId; });
+    var to = list.findIndex(function (p) { return p.id === targetId; });
+    if (from < 0 || to < 0) return;
+    var moved = list.splice(from, 1)[0];
+    list.splice(to, 0, moved);
+    Promise.all(list.map(function (p, i) {
+      p.sortOrder = i;
+      return add("products", p);
+    })).then(function () {
+      renderProducts();
+      toast("Orden actualizado");
+    });
+  }
+  function openProductModal(product) {
+    selectedProduct = product;
+    $("productModalTitle").textContent = product.name;
+    $("productModalIcon").innerHTML = product.imageData ? "<img src='" + escapeHtml(product.imageData) + "' alt=''>" : productIcon(product.name);
+    $("productPriceInput").value = String(product.price || "");
+    $("productQuantityInput").value = "1";
+    $("productQuantityLabel").firstChild.nodeValue = product.unitType === "kg" ? "Cuantos kg " : "Cantidad ";
+    $("productModal").classList.remove("hidden");
+    updateProductModalTotal();
+    $("productQuantityInput").focus();
+  }
+  function closeProductModal() {
+    $("productModal").classList.add("hidden");
+    selectedProduct = null;
+  }
+  function updateProductModalTotal() {
+    var total = parseMoney($("productPriceInput").value) * parseMoney($("productQuantityInput").value);
+    $("productModalTotal").textContent = money(total);
+  }
+  function productLineFromModal() {
+    if (!selectedProduct) return null;
+    var price = parseMoney($("productPriceInput").value);
+    var q = parseMoney($("productQuantityInput").value);
+    if (price <= 0 || q <= 0) {
+      toast("Cargue precio y cantidad");
+      return null;
+    }
+    selectedProduct.price = price;
+    selectedProduct.priceUnit = selectedProduct.priceUnit || selectedProduct.unitType;
+    add("products", selectedProduct);
+    return {
+      productId: selectedProduct.id,
+      productName: selectedProduct.name,
+      quantity: q,
+      unitType: selectedProduct.unitType,
+      unitPrice: price,
+      subtotal: Math.round(q * price * 100) / 100
+    };
+  }
+  function registerProductSale(e) {
+    e.preventDefault();
+    var item = productLineFromModal();
+    if (!item) return;
+    closeProductModal();
+    saveSale(item.subtotal, "PRODUCT_QUICK", [item]);
+  }
+  function addProductToTicket() {
+    var item = productLineFromModal();
+    if (!item) return;
+    basket.push(item);
+    closeProductModal();
+    renderBasket();
+    renderProducts();
+    toast("Agregado al ticket");
+  }
+  function openWithdrawModal() {
+    $("withdrawModal").classList.remove("hidden");
+    $("withdrawAmount").focus();
+  }
+  function closeWithdrawModal() {
+    $("withdrawModal").classList.add("hidden");
+  }
+  function scheduleSaleAutoSave() {
+    clearTimeout(autoSaleTimer);
+    if (!$("saleAmount") || parseMoney($("saleAmount").value) <= 0) return;
+    autoSaleTimer = setTimeout(function () {
+      if (!isSubmittingSale && parseMoney($("saleAmount").value) > 0) {
+        saveSale(parseMoney($("saleAmount").value), "FAST_AUTO");
+        toast("Venta pendiente registrada automaticamente");
+      }
+    }, 60000);
+  }
+  function scheduleTicketAutoSave() {
+    clearTimeout(autoTicketTimer);
+    if (!basket.length) return;
+    autoTicketTimer = setTimeout(function () {
+      if (!isSubmittingSale && basket.length) {
+        chargeBasket();
+        toast("Ticket pendiente registrado automaticamente");
+      }
+    }, 60000);
+  }
+  function openProductEditor() {
+    $("productEditorModal").classList.remove("hidden");
+    resetProductEditorForm();
+    renderProductEditor();
+  }
+  function closeProductEditor() {
+    $("productEditorModal").classList.add("hidden");
+  }
+  function resetProductEditorForm() {
+    $("editProductId").value = "";
+    $("editProductName").value = "";
+    $("editProductUnit").value = "unidad";
+    $("editProductPrice").value = "";
+    $("editProductPriceUnit").value = "unidad";
+    $("editProductCategory").value = "";
+    $("editProductImage").value = "";
+    editImageData = "";
+  }
+  function renderProductEditor() {
+    all("products").then(function (products) {
+      editorProducts = products.filter(function (p) { return p.active; });
+      $("productEditorList").innerHTML = editorProducts.length ? editorProducts.map(function (p) {
+        return "<div class='editor-product-row'><div>" + productImage(p) + "</div><span><b>" + escapeHtml(p.name) + "</b><small>" + money(p.price) + " / " + escapeHtml(p.priceUnit || p.unitType) + " | vendido por " + escapeHtml(p.unitType) + "</small></span><button type='button' data-edit-product='" + p.id + "'>Editar</button><button class='danger' type='button' data-delete-product='" + p.id + "'>Borrar</button></div>";
+      }).join("") : empty("Sin productos");
+      document.querySelectorAll("[data-edit-product]").forEach(function (btn) {
+        btn.onclick = function () {
+          var p = editorProducts.filter(function (x) { return x.id === btn.dataset.editProduct; })[0];
+          if (!p) return;
+          $("editProductId").value = p.id;
+          $("editProductName").value = p.name || "";
+          $("editProductUnit").value = p.unitType || "unidad";
+          $("editProductPrice").value = String(p.price || "");
+          $("editProductPriceUnit").value = p.priceUnit || p.unitType || "unidad";
+          $("editProductCategory").value = p.category || "";
+          $("editProductImage").value = "";
+          editImageData = p.imageData || "";
+        };
+      });
+      document.querySelectorAll("[data-delete-product]").forEach(function (btn) {
+        btn.onclick = function () {
+          var p = editorProducts.filter(function (x) { return x.id === btn.dataset.deleteProduct; })[0];
+          if (!p || !confirm("Borrar " + p.name + "?")) return;
+          p.active = false;
+          add("products", p).then(function () {
+            renderProducts();
+            renderProductEditor();
+            toast("Producto borrado");
+          });
+        };
+      });
+    });
+  }
+  function saveProductEditor(e) {
+    e.preventDefault();
+    var name = $("editProductName").value.trim();
+    var price = parseMoney($("editProductPrice").value);
+    if (!name || price <= 0) { toast("Complete nombre y precio"); return; }
+    var id = $("editProductId").value || uid();
+    var existing = editorProducts.filter(function (p) { return p.id === id; })[0] || {};
+    var product = {
+      id: id,
+      name: name,
+      price: price,
+      unitType: $("editProductUnit").value,
+      priceUnit: $("editProductPriceUnit").value,
+      category: $("editProductCategory").value.trim() || "General",
+      imageData: editImageData || existing.imageData || "",
+      active: true,
+      sortOrder: existing.sortOrder == null ? editorProducts.length : existing.sortOrder,
+      createdAt: existing.createdAt || nowIso(),
+      updatedAt: nowIso()
+    };
+    add("products", product).then(function () {
+      resetProductEditorForm();
+      renderProducts();
+      renderProductEditor();
+      toast("Producto guardado");
+    });
+  }
+  function openCustomItemModal() {
+    $("customItemModal").classList.remove("hidden");
+    $("customItemName").focus();
+    updateCustomItemTotal();
+  }
+  function closeCustomItemModal() {
+    $("customItemModal").classList.add("hidden");
+    $("customItemForm").reset();
+    updateCustomItemTotal();
+  }
+  function updateCustomItemTotal() {
+    $("customItemTotal").textContent = money(parseMoney($("customItemQty").value) * parseMoney($("customItemPrice").value));
+  }
+  function saveCustomItem(e) {
+    e.preventDefault();
+    var name = $("customItemName").value.trim();
+    var q = parseMoney($("customItemQty").value);
+    var price = parseMoney($("customItemPrice").value);
+    if (!name || q <= 0 || price <= 0) { toast("Complete producto, cantidad y precio"); return; }
+    basket.push({
+      productId: "custom",
+      productName: name,
+      quantity: q,
+      unitType: $("customItemUnit").value,
+      unitPrice: price,
+      subtotal: Math.round(q * price * 100) / 100
+    });
+    closeCustomItemModal();
+    renderBasket();
+    toast("Producto custom agregado");
+  }
+  function handleProductImage(file) {
+    if (!file) { editImageData = ""; return; }
+    var reader = new FileReader();
+    reader.onload = function () { editImageData = String(reader.result || ""); };
+    reader.readAsDataURL(file);
   }
 
   function activeTransactions() {
@@ -609,6 +931,31 @@
     $("basketModeBtn").onclick = function () { setSaleMode("basket"); };
     $("clearBasketBtn").onclick = function () { basket = []; renderBasket(); };
     $("chargeBasketBtn").onclick = chargeBasket;
+    $("openWithdrawBtn").onclick = openWithdrawModal;
+    $("closeWithdrawModal").onclick = closeWithdrawModal;
+    $("closeUndoModal").onclick = closeUndoModal;
+    $("undoForm").onsubmit = confirmUndoSale;
+    $("closeProductModal").onclick = closeProductModal;
+    $("closeProductEditorModal").onclick = closeProductEditor;
+    $("newProductBtn").onclick = resetProductEditorForm;
+    $("productSaleForm").onsubmit = registerProductSale;
+    $("productEditorForm").onsubmit = saveProductEditor;
+    $("addProductToTicket").onclick = addProductToTicket;
+    $("openCustomItemBtn").onclick = openCustomItemModal;
+    $("closeCustomItemModal").onclick = closeCustomItemModal;
+    $("customItemForm").onsubmit = saveCustomItem;
+    $("customItemQty").oninput = updateCustomItemTotal;
+    $("customItemPrice").oninput = updateCustomItemTotal;
+    $("editProductImage").onchange = function () { handleProductImage($("editProductImage").files[0]); };
+    $("productPriceInput").oninput = updateProductModalTotal;
+    $("productQuantityInput").oninput = updateProductModalTotal;
+    $("saleAmount").oninput = scheduleSaleAutoSave;
+    $("ticketPaid").oninput = renderBasket;
+    $("productModal").onclick = function (e) { if (e.target === $("productModal")) closeProductModal(); };
+    $("withdrawModal").onclick = function (e) { if (e.target === $("withdrawModal")) closeWithdrawModal(); };
+    $("undoModal").onclick = function (e) { if (e.target === $("undoModal")) closeUndoModal(); };
+    $("productEditorModal").onclick = function (e) { if (e.target === $("productEditorModal")) closeProductEditor(); };
+    $("customItemModal").onclick = function (e) { if (e.target === $("customItemModal")) closeCustomItemModal(); };
     document.querySelectorAll(".pay-btn").forEach(function (b) { b.onclick = function () { setPayment(b.dataset.payment); }; });
     $("calcAdd").onclick = function () { addCalc(parseMoney($("calcAmount").value)); };
     $("calcClear").onclick = function () { calcItems = []; $("calcPaid").value = ""; renderCalc(); };
@@ -621,16 +968,19 @@
       if (tag === "textarea" || (tag === "input" && document.activeElement !== $("saleAmount"))) return;
       if (e.key === "Enter" && saleMode === "quick" && document.activeElement === $("saleAmount")) {
         e.preventDefault();
+        clearTimeout(autoSaleTimer);
         saveSale(parseMoney($("saleAmount").value), "FAST");
       }
       if ((e.key === "e" || e.key === "E") && saleMode === "quick" && $("saleAmount").value.trim()) {
         e.preventDefault();
         setPayment("Efectivo");
+        clearTimeout(autoSaleTimer);
         saveSale(parseMoney($("saleAmount").value), "FAST");
       }
       if ((e.key === "t" || e.key === "T") && saleMode === "quick" && $("saleAmount").value.trim()) {
         e.preventDefault();
         setPayment("Transferencia");
+        clearTimeout(autoSaleTimer);
         saveSale(parseMoney($("saleAmount").value), "FAST");
       }
     });

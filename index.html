@@ -52,7 +52,7 @@
     <button id="logoutBtn" class="logout">Cerrar sesion</button>
   </header>
 
-  <section id="workShiftBar" class="work-shift-bar">
+  <section id="workShiftBar" class="work-shift-bar hidden">
     <form>
       <b>Corregir fecha/turno de trabajo:</b>
       <input id="workDateInput" type="date">
@@ -66,91 +66,197 @@
 
   <main>
     <section id="tabCaja" class="tab-page">
-      <section class="cash-grid">
-        <div class="panel sale">
+      <details id="productShelf" class="product-shelf" open>
+        <summary><span>Productos rapidos</span><b>⌄</b></summary>
+        <div id="productGrid" class="product-grid product-strip"></div>
+      </details>
+
+      <section class="cash-grid cashier-layout">
+        <div class="panel sale cashier-left">
           <div class="sale-title-row">
             <h1>VENTA</h1>
-            <span id="submitState" class="state-pill">Listo</span>
-          </div>
-          <form id="saleForm" autocomplete="off">
-            <input id="saleAmount" class="amount" placeholder="Monto" autofocus>
-            <div id="quickButtons" class="quick-sale-buttons"></div>
-            <select id="salePaymentSelect">
+            <select id="salePaymentSelect" aria-label="Metodo de pago">
               <option>Efectivo</option>
               <option>Transferencia</option>
             </select>
-            <small class="hint">Atajos: Enter = metodo seleccionado, E = efectivo, T = transferencia.</small>
-            <button id="saveSaleBtn" class="big success" type="submit">REGISTRAR VENTA</button>
+            <span id="submitState" class="state-pill">Listo</span>
+          </div>
+          <form id="saleForm" autocomplete="off" class="manual-sale">
+            <input id="saleAmount" class="amount" placeholder="MONTO" autofocus>
+            <button id="saveSaleBtn" class="enter-sale-btn" type="submit" aria-label="Registrar venta">↵</button>
           </form>
 
-          <form class="undo-form">
-            <button id="undoBtn" class="undo-btn" type="button">Deshacer ultima venta</button>
-          </form>
-
-          <details class="quick-config">
-            <summary>Modo de venta</summary>
-            <div class="mode-switch">
-              <button id="quickModeBtn" class="active" type="button">Modo rapido</button>
-              <button id="basketModeBtn" type="button">Modo productos</button>
-            </div>
-          </details>
-
-          <section id="basketPanel" class="basket-panel hidden">
-            <div id="productGrid" class="product-grid"></div>
-            <div class="basket-box">
-              <div class="basket-head">
-                <strong>Canasta</strong>
-                <button id="clearBasketBtn" class="small" type="button">Vaciar</button>
-              </div>
-              <div id="basketItems" class="mini-list"></div>
-              <div class="calc-total"><span>Total</span><b id="basketTotal">$ 0,00</b></div>
-              <button id="chargeBasketBtn" class="big success" type="button">Cobrar canasta</button>
-            </div>
-          </section>
-
-          <h3 class="last-title">Ultimas ventas</h3>
+          <h3 class="last-title">ULTIMAS VENTAS</h3>
           <div id="lastSales" class="mini-list last-sales-list"></div>
 
-          <details class="sale-calc-wrap">
-            <summary>Calculadora de cobro</summary>
-            <div class="sale-calc">
-              <div class="calc-row">
-                <input id="calcAmount" placeholder="Importe a sumar">
-                <button id="calcAdd" type="button">Sumar</button>
-                <button id="calcClear" type="button">Borrar</button>
-              </div>
-              <div class="calc-quick">
-                <button type="button" data-calc="500">+500</button>
-                <button type="button" data-calc="1000">+1000</button>
-                <button type="button" data-calc="2000">+2000</button>
-                <button type="button" data-calc="5000">+5000</button>
-              </div>
-              <div id="calcList" class="calc-ticket"></div>
-              <div class="calc-count"><span>Items</span><b id="calcItemCount">0</b></div>
-              <div class="calc-total"><span>Total a cobrar</span><b id="calcTotal">$ 0,00</b></div>
-              <div class="calc-row">
-                <input id="calcPaid" placeholder="Con cuanto paga">
-                <button id="calcUse" type="button">Usar total en venta</button>
-              </div>
-              <div class="calc-change"><span>Vuelto</span><b id="calcChange">$ 0,00</b></div>
-            </div>
-          </details>
+          <div class="cash-actions">
+            <button id="undoBtn" class="undo-btn" type="button">Deshacer ultima venta</button>
+            <button id="openWithdrawBtn" class="withdraw-btn" type="button">Retiro de dinero</button>
+          </div>
         </div>
 
-        <div class="panel expense side-status-panel">
-          <h1>CAJA</h1>
-          <section class="withdraw-strip-local">
-            <form id="withdrawForm" autocomplete="off">
-              <b>Retiro de caja</b>
-              <input id="withdrawAmount" placeholder="Monto">
-              <input id="withdrawDescription" placeholder="Comentario opcional">
-              <button>Registrar retiro</button>
-            </form>
-          </section>
-          <div class="msg warn">Los gastos ya no se cargan en la pantalla principal. Usar Mensual para proveedores, sueldos, alquiler, servicios y otros egresos grandes.</div>
-          <div id="todaySummary" class="summary-grid"></div>
-        </div>
+        <aside class="panel ticket-panel">
+          <div class="ticket-head">
+            <h2>Ticket</h2>
+            <div class="ticket-head-actions">
+              <button id="openCustomItemBtn" class="small primary" type="button">Producto custom</button>
+              <button id="clearBasketBtn" class="small" type="button">Vaciar</button>
+            </div>
+          </div>
+          <div id="basketItems" class="mini-list ticket-items"></div>
+          <div class="ticket-total"><span>Total</span><b id="basketTotal">$ 0,00</b></div>
+          <label class="ticket-paid">Paga con
+            <input id="ticketPaid" placeholder="Monto recibido">
+          </label>
+          <div class="ticket-change"><span>Vuelto</span><b id="ticketChange">$ 0,00</b></div>
+          <button id="chargeBasketBtn" class="big success" type="button">Registrar venta</button>
+        </aside>
       </section>
+
+      <section class="hidden" aria-hidden="true">
+        <div id="quickButtons"></div>
+        <div id="basketPanel"></div>
+        <button id="quickModeBtn" type="button"></button>
+        <button id="basketModeBtn" type="button"></button>
+        <input id="calcAmount">
+        <button id="calcAdd" type="button"></button>
+        <button id="calcClear" type="button"></button>
+        <div id="calcList"></div>
+        <b id="calcItemCount"></b>
+        <b id="calcTotal"></b>
+        <input id="calcPaid">
+        <button id="calcUse" type="button"></button>
+        <b id="calcChange"></b>
+      </section>
+
+      <div id="productModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="productSaleForm" class="modal-card" autocomplete="off">
+          <button id="closeProductModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <div class="product-modal-icon" id="productModalIcon"></div>
+          <h2 id="productModalTitle">Producto</h2>
+          <label>Precio cargado
+            <input id="productPriceInput" placeholder="Precio por unidad/kg">
+          </label>
+          <label id="productQuantityLabel">Cantidad
+            <input id="productQuantityInput" placeholder="Ej: 1">
+          </label>
+          <div class="modal-total"><span>Total</span><b id="productModalTotal">$ 0,00</b></div>
+          <div class="modal-actions">
+            <button id="registerProductNow" class="success" type="submit">Registrar venta</button>
+            <button id="addProductToTicket" class="primary" type="button">Agregar al ticket</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="withdrawModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="withdrawForm" class="modal-card" autocomplete="off">
+          <button id="closeWithdrawModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Retiro de dinero</h2>
+          <label>Monto retirado
+            <input id="withdrawAmount" placeholder="Monto">
+          </label>
+          <label>Quien retiro
+            <input id="withdrawBy" placeholder="Nombre" required>
+          </label>
+          <label>Comentario
+            <input id="withdrawDescription" placeholder="Opcional">
+          </label>
+          <button class="big success" type="submit">Registrar retiro</button>
+        </form>
+      </div>
+
+      <div id="undoModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="undoForm" class="modal-card" autocomplete="off">
+          <button id="closeUndoModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Deshacer ultima venta</h2>
+          <p id="undoSaleSummary" class="modal-note"></p>
+          <label>Motivo obligatorio
+            <textarea id="undoReason" placeholder="Explique por que se deshace esta venta" required></textarea>
+          </label>
+          <button class="big danger" type="submit">Confirmar deshacer</button>
+        </form>
+      </div>
+
+      <div id="productEditorModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-card modal-wide">
+          <button id="closeProductEditorModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <div class="editor-head">
+            <div>
+              <h2>Productos rapidos</h2>
+              <p>Imagen recomendada: cuadrada, 480 x 480 px o similar.</p>
+            </div>
+            <button id="newProductBtn" class="primary" type="button">Nuevo producto</button>
+          </div>
+          <form id="productEditorForm" class="editor-form" autocomplete="off">
+            <input id="editProductId" type="hidden">
+            <label>Nombre
+              <input id="editProductName" placeholder="Ej: Pan">
+            </label>
+            <label>Se vende por
+              <select id="editProductUnit">
+                <option value="kg">kg</option>
+                <option value="gr">gr</option>
+                <option value="unidad">unidad</option>
+                <option value="cantidad">cantidad</option>
+                <option value="paquete">paquete</option>
+                <option value="docena">docena</option>
+                <option value="litro">litro</option>
+              </select>
+            </label>
+            <label>Precio
+              <input id="editProductPrice" placeholder="Precio">
+            </label>
+            <label>Precio por
+              <select id="editProductPriceUnit">
+                <option value="kg">kg</option>
+                <option value="gr">gr</option>
+                <option value="unidad">unidad</option>
+                <option value="cantidad">cantidad</option>
+                <option value="paquete">paquete</option>
+                <option value="docena">docena</option>
+                <option value="litro">litro</option>
+              </select>
+            </label>
+            <label>Categoria
+              <input id="editProductCategory" placeholder="Panaderia">
+            </label>
+            <label>Imagen
+              <input id="editProductImage" type="file" accept="image/*">
+            </label>
+            <button class="success" type="submit">Guardar producto</button>
+          </form>
+          <div id="productEditorList" class="editor-list"></div>
+        </div>
+      </div>
+
+      <div id="customItemModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="customItemForm" class="modal-card" autocomplete="off">
+          <button id="closeCustomItemModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Producto custom</h2>
+          <label>Que se vendio
+            <input id="customItemName" placeholder="Ej: Pedido especial">
+          </label>
+          <label>Cantidad
+            <input id="customItemQty" placeholder="Ej: 1">
+          </label>
+          <label>Unidad
+            <select id="customItemUnit">
+              <option value="unidad">unidad</option>
+              <option value="kg">kg</option>
+              <option value="gr">gr</option>
+              <option value="cantidad">cantidad</option>
+              <option value="paquete">paquete</option>
+              <option value="docena">docena</option>
+              <option value="litro">litro</option>
+            </select>
+          </label>
+          <label>Precio
+            <input id="customItemPrice" placeholder="Precio unitario">
+          </label>
+          <div class="modal-total"><span>Total</span><b id="customItemTotal">$ 0,00</b></div>
+          <button class="big success" type="submit">Agregar al ticket</button>
+        </form>
+      </div>
     </section>
 
     <section id="tabCierres" class="tab-page hidden">
