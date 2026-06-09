@@ -108,6 +108,12 @@
           </div>
           <div id="basketItems" class="mini-list ticket-items"></div>
           <div class="ticket-total"><span>Total</span><b id="basketTotal">$ 0,00</b></div>
+          <label class="ticket-payment">Metodo de pago
+            <select id="ticketPaymentSelect" aria-label="Metodo de pago del ticket">
+              <option>Efectivo</option>
+              <option>Transferencia</option>
+            </select>
+          </label>
           <label class="ticket-paid">Paga con
             <input id="ticketPaid" placeholder="Monto recibido">
           </label>
@@ -369,6 +375,16 @@
         <section class="report-box metrics-chart-box"><h2>Ventas por dia</h2><canvas id="salesChart" height="250"></canvas></section>
         <section class="report-box"><h2>Detalle del rango</h2><div id="metricsBreakdown" class="metrics-breakdown"></div></section>
       </section>
+      <section class="metrics-graph-grid">
+        <section class="report-box metrics-chart-box"><h2>Cantidad de ventas por dia</h2><canvas id="salesCountChart" height="220"></canvas></section>
+        <section class="report-box metrics-chart-box"><h2>Medios de pago</h2><canvas id="paymentMixChart" height="220"></canvas></section>
+        <section class="report-box metrics-chart-box"><h2>Productos por recaudacion</h2><canvas id="productRevenueChart" height="220"></canvas></section>
+      </section>
+      <section class="metrics-deep-grid">
+        <section class="report-box"><h2>Productos mas vendidos</h2><div id="metricsProducts" class="metrics-breakdown metric-ranked"></div></section>
+        <section class="report-box"><h2>Control operativo</h2><div id="metricsOps" class="metrics-breakdown"></div></section>
+        <section class="report-box"><h2>Balance y caja</h2><div id="metricsCash" class="metrics-breakdown"></div></section>
+      </section>
     </section>
 
     <section id="tabMovimientos" class="tab-page hidden movements-page">
@@ -563,39 +579,204 @@
       </section>
     </section>
 
-    <section id="tabUsuarios" class="tab-page hidden">
-      <h1>Usuarios</h1>
-      <section class="report-box">
-        <form id="userForm" class="user-form">
-          <input id="newUsername" placeholder="Usuario">
-          <input id="newDisplayName" placeholder="Nombre visible">
-          <select id="newRole"><option value="employee">Empleado</option><option value="admin">Admin</option><option value="dev">Developer</option></select>
-          <input id="newPassword" placeholder="PIN o clave">
-          <button>Crear</button>
-        </form>
+    <section id="tabUsuarios" class="tab-page hidden users-page">
+      <div class="section-title">
+        <div>
+          <p>Administracion</p>
+          <h1>Usuarios</h1>
+        </div>
+        <span class="soft-pill">Accesos del sistema</span>
+      </div>
+      <section id="usersSummary" class="metrics-cards users-summary"></section>
+      <section class="users-workspace">
+        <section class="report-box users-form-box">
+          <div class="panel-head">
+            <div>
+              <h2>Nuevo usuario</h2>
+              <p>Crear acceso para caja, produccion o administracion.</p>
+            </div>
+          </div>
+          <form id="userForm" class="user-form" autocomplete="off">
+            <label>Usuario
+              <input id="newUsername" placeholder="Ej: turno_refuerzo" autocomplete="off">
+            </label>
+            <label>Nombre visible
+              <input id="newDisplayName" placeholder="Ej: Turno refuerzo" autocomplete="off">
+            </label>
+            <label>Rol
+              <select id="newRole"><option value="employee">Empleado</option><option value="admin">Admin</option><option value="dev">Developer</option></select>
+            </label>
+            <label>PIN o clave
+              <input id="newPassword" placeholder="Clave de ingreso" autocomplete="new-password">
+            </label>
+            <button class="primary" type="submit">Crear usuario</button>
+          </form>
+        </section>
+        <section class="report-box users-list-box">
+          <div class="panel-head">
+            <div>
+              <h2>Usuarios activos</h2>
+              <p>El usuario developer queda oculto de esta lista.</p>
+            </div>
+          </div>
+          <div id="usersList" class="users-list"></div>
+        </section>
       </section>
-      <section class="report-box"><div id="usersList" class="table-scroll"></div></section>
     </section>
 
-    <section id="tabDev" class="tab-page hidden">
-      <h1>Dev</h1>
-      <section class="report-box">
-        <h2>Mercado Pago / Supabase</h2>
-        <form id="integrationForm" class="integration-form" autocomplete="off">
-          <input id="supabaseUrl" placeholder="Supabase project URL">
-          <input id="supabaseAnonKey" placeholder="Supabase anon key">
-          <button class="primary" type="submit">Guardar integracion</button>
+    <section id="tabDev" class="tab-page hidden dev-page">
+      <div class="section-title">
+        <div>
+          <p>Developer</p>
+          <h1>Dev</h1>
+        </div>
+        <span class="soft-pill">Configuracion avanzada</span>
+      </div>
+      <section id="devSummary" class="metrics-cards dev-summary"></section>
+      <section class="dev-workspace">
+        <section class="report-box dev-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Apariencia y espacio</h2>
+              <p>Ajustes visibles para todos los usuarios en esta terminal.</p>
+            </div>
+          </div>
+          <form id="devUiForm" class="dev-settings-form" autocomplete="off">
+            <label>Densidad
+              <select id="devDensity">
+                <option value="normal">Normal</option>
+                <option value="compact">Compacta</option>
+                <option value="roomy">Con aire</option>
+              </select>
+            </label>
+            <label>Color de fondo
+              <select id="devTheme">
+                <option value="green">Verde suave</option>
+                <option value="warm">Marron calido</option>
+                <option value="amber">Ambar panaderia</option>
+              </select>
+            </label>
+            <label>Animaciones
+              <select id="devMotion">
+                <option value="on">Activadas</option>
+                <option value="reduced">Reducidas</option>
+              </select>
+            </label>
+            <label>Ancho Venta
+              <input id="devSaleWidth" type="range" min="360" max="760" step="10">
+              <output id="devSaleWidthValue"></output>
+            </label>
+            <label>Alto Quick Products
+              <input id="devShelfHeight" type="range" min="120" max="320" step="10">
+              <output id="devShelfHeightValue"></output>
+            </label>
+            <div class="dev-actions">
+              <button id="saveDevUiBtn" class="primary" type="submit">Guardar UI</button>
+              <button id="resetDevUiBtn" type="button">Reset UI</button>
+              <button id="resetTabOrderBtn" type="button">Reset tabs</button>
+            </div>
+          </form>
+        </section>
+        <section class="report-box dev-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Mercado Pago / Supabase</h2>
+              <p>Conexion backend para preferencias, webhooks y estados.</p>
+            </div>
+          </div>
+          <form id="integrationForm" class="integration-form" autocomplete="off">
+            <label>Supabase URL
+              <input id="supabaseUrl" placeholder="Supabase project URL">
+            </label>
+            <label>Anon key
+              <input id="supabaseAnonKey" placeholder="Supabase anon key">
+            </label>
+            <button class="primary" type="submit">Guardar integracion</button>
+          </form>
+          <div class="msg warn">No guardar tokens secretos en esta app. El Access Token de Mercado Pago va solo en Supabase Edge Functions.</div>
+        </section>
+        <section class="report-box dev-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Actualizaciones</h2>
+              <p>Busca versiones nuevas en GitHub al iniciar la app.</p>
+            </div>
+          </div>
+          <div class="update-panel">
+            <div class="update-status-card">
+              <span>Version local</span>
+              <b id="localVersionLabel">-</b>
+            </div>
+            <div class="update-status-card">
+              <span>Ultima revision</span>
+              <b id="updateStatusLabel">Sin revisar</b>
+            </div>
+            <label class="update-toggle">Buscar al iniciar
+              <select id="autoUpdateCheck">
+                <option value="true">Activado</option>
+                <option value="false">Desactivado</option>
+              </select>
+            </label>
+            <div class="dev-actions">
+              <button id="checkUpdatesBtn" class="primary" type="button">Buscar updates</button>
+              <button id="copyUpdaterCommandBtn" type="button">Copiar updater</button>
+              <button id="downloadUpdateBtn" type="button">Descargar ZIP manual</button>
+              <button id="openRepoBtn" type="button">Abrir repo</button>
+            </div>
+            <p id="updateDetailText" class="modal-note">Para instalar updates, cerrar la app y ejecutar Update-AppCajaPana.bat desde la carpeta del programa.</p>
+          </div>
+        </section>
+        <section class="report-box dev-panel dev-wide">
+          <div class="panel-head">
+            <div>
+              <h2>Datos y mantenimiento</h2>
+              <p>Exportacion completa para revisar, respaldar o migrar datos locales.</p>
+            </div>
+            <div class="dev-maintenance-actions">
+              <label>Meses test
+                <select id="testDataMonths">
+                  <option value="1">1 mes</option>
+                  <option value="2">2 meses</option>
+                  <option value="3">3 meses</option>
+                  <option value="6" selected>6 meses</option>
+                </select>
+              </label>
+              <button id="generateTestDataBtn" class="success" type="button">Generar test</button>
+              <button id="exportBtn" class="primary" type="button">Exportar JSON</button>
+              <button id="clearAllDataBtn" class="danger" type="button">Borrar todo</button>
+            </div>
+          </div>
+          <div id="devStoreList" class="dev-store-list"></div>
+          <div id="exportBox" class="export-box hidden"></div>
+        </section>
+      </section>
+      <div id="clearDataModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="clearDataForm" class="modal-card movement-edit-card" autocomplete="off">
+          <button id="closeClearDataModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Borrar todos los datos</h2>
+          <p class="modal-note">Esta accion borra ventas, cierres, gastos, produccion, actividad y configuraciones locales. Se vuelven a crear solo los usuarios y productos iniciales.</p>
+          <label>Escriba BORRAR para confirmar
+            <input id="clearDataConfirm" placeholder="BORRAR">
+          </label>
+          <button class="big danger" type="submit">Borrar datos definitivamente</button>
         </form>
-        <div class="msg warn">No guardar tokens secretos en esta app. El Access Token de Mercado Pago va solo en Supabase Edge Functions.</div>
-      </section>
-      <section class="report-box">
-        <button id="exportBtn" class="primary">Exportar JSON</button>
-        <div id="exportBox" class="export-box hidden"></div>
-      </section>
+      </div>
     </section>
   </main>
 </section>
 
+<div id="updateModal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card movement-edit-card">
+    <button id="closeUpdateModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+    <h2>Update disponible</h2>
+    <p id="updateModalDetail" class="modal-note"></p>
+    <div class="modal-actions">
+      <button id="copyUpdaterCommandModalBtn" class="primary" type="button">Copiar updater</button>
+      <button id="downloadUpdateModalBtn" type="button">Descargar ZIP manual</button>
+      <button id="openRepoModalBtn" type="button">Abrir repo</button>
+    </div>
+  </div>
+</div>
 <div id="toastHost" class="toast-container"></div>
 <script src="app.js"></script>
 </body>

@@ -3,6 +3,12 @@
 
   var DB_NAME = "bakery_caja_static_v1";
   var DB_VERSION = 1;
+  var APP_VERSION = "2026.06.09.2";
+  var APP_REPO = "Biblicaaal/AppCajaPana";
+  var APP_BRANCH = "main";
+  var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/" + APP_REPO + "/" + APP_BRANCH + "/update.json";
+  var UPDATE_ZIP_URL = "https://github.com/" + APP_REPO + "/archive/refs/heads/" + APP_BRANCH + ".zip";
+  var UPDATE_REPO_URL = "https://github.com/" + APP_REPO;
   var STORES = ["users", "sessions", "transactions", "closures", "monthlyEntries", "productionItems", "products", "baskets", "basketItems", "settings", "auditLog"];
   var PAYMENT = "Efectivo";
   var currentUser = null;
@@ -97,6 +103,191 @@
     if ($("supabaseUrl")) $("supabaseUrl").value = s.supabaseUrl || "";
     if ($("supabaseAnonKey")) $("supabaseAnonKey").value = s.supabaseAnonKey || "";
   }
+  function updateSettings() {
+    try {
+      var saved = JSON.parse(localStorage.getItem("bakeryUpdateSettings") || "{}");
+      if (saved.autoCheck === undefined) saved.autoCheck = true;
+      return saved;
+    } catch (e) {
+      return { autoCheck: true };
+    }
+  }
+  function saveUpdateSettings() {
+    localStorage.setItem("bakeryUpdateSettings", JSON.stringify({
+      autoCheck: $("autoUpdateCheck") ? $("autoUpdateCheck").value === "true" : true
+    }));
+    toast("Preferencia de updates guardada");
+  }
+  function loadUpdateSettings() {
+    var s = updateSettings();
+    if ($("autoUpdateCheck")) $("autoUpdateCheck").value = String(s.autoCheck !== false);
+    if ($("localVersionLabel")) $("localVersionLabel").textContent = APP_VERSION;
+    renderUpdateStatus(JSON.parse(localStorage.getItem("bakeryLastUpdateCheck") || "null"));
+  }
+  function renderUpdateStatus(info) {
+    if ($("localVersionLabel")) $("localVersionLabel").textContent = APP_VERSION;
+    if (!info) {
+      if ($("updateStatusLabel")) $("updateStatusLabel").textContent = "Sin revisar";
+      if ($("updateDetailText")) $("updateDetailText").textContent = "La app revisa GitHub al iniciar. Para instalar, ejecutar Update-AppCajaPana.bat desde la carpeta del programa.";
+      return;
+    }
+    if ($("updateStatusLabel")) $("updateStatusLabel").textContent = info.available ? "Update disponible" : (info.error ? "Error de conexion" : "Al dia");
+    if ($("updateDetailText")) $("updateDetailText").textContent = info.message || "";
+  }
+  function compareVersions(a, b) {
+    var aa = String(a || "0").split(".").map(Number);
+    var bb = String(b || "0").split(".").map(Number);
+    for (var i = 0; i < Math.max(aa.length, bb.length); i++) {
+      var x = aa[i] || 0;
+      var y = bb[i] || 0;
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+    return 0;
+  }
+  function checkForUpdates(silent) {
+    var url = UPDATE_MANIFEST_URL + "?t=" + Date.now();
+    if (!silent) toast("Buscando updates...");
+    return fetch(url, { cache: "no-store" }).then(function (res) {
+      if (!res.ok) throw new Error("No se encontro update.json en el repo");
+      return res.json();
+    }).then(function (remote) {
+      var remoteVersion = remote.version || "0";
+      var available = compareVersions(remoteVersion, APP_VERSION) > 0;
+      var message = available
+        ? "Version " + remoteVersion + " disponible. Local: " + APP_VERSION + ". " + (remote.notes || "")
+        : "Version local " + APP_VERSION + " al dia. Ultima remota: " + remoteVersion + ".";
+      var info = {
+        checkedAt: nowIso(), available: available, version: remoteVersion, localVersion: APP_VERSION,
+        downloadUrl: remote.downloadUrl || UPDATE_ZIP_URL, repoUrl: remote.repoUrl || UPDATE_REPO_URL,
+        message: message
+      };
+      localStorage.setItem("bakeryLastUpdateCheck", JSON.stringify(info));
+      renderUpdateStatus(info);
+      if (available) openUpdateModal(info);
+      else if (!silent) toast("App al dia");
+      return info;
+    }).catch(function (err) {
+      var info = {
+        checkedAt: nowIso(), available: false, error: true, localVersion: APP_VERSION,
+        downloadUrl: UPDATE_ZIP_URL, repoUrl: UPDATE_REPO_URL,
+        message: "No se pudo revisar GitHub: " + (err.message || "sin conexion")
+      };
+      localStorage.setItem("bakeryLastUpdateCheck", JSON.stringify(info));
+      renderUpdateStatus(info);
+      if (!silent) toast("No se pudo revisar updates");
+      return info;
+    });
+  }
+  function openUpdateModal(info) {
+    info = info || JSON.parse(localStorage.getItem("bakeryLastUpdateCheck") || "null");
+    if (!info || !info.available || !$("updateModal")) return;
+    $("updateModalDetail").textContent = (info.message || "Hay una version nueva disponible.") + " Cerrar la app y ejecutar Update-AppCajaPana.bat para instalarla.";
+    $("updateModal").classList.remove("hidden");
+  }
+  function closeUpdateModal() {
+    if ($("updateModal")) $("updateModal").classList.add("hidden");
+  }
+  function downloadUpdate() {
+    var info = JSON.parse(localStorage.getItem("bakeryLastUpdateCheck") || "null") || {};
+    window.open(info.downloadUrl || UPDATE_ZIP_URL, "_blank");
+  }
+  function openUpdateRepo() {
+    var info = JSON.parse(localStorage.getItem("bakeryLastUpdateCheck") || "null") || {};
+    window.open(info.repoUrl || UPDATE_REPO_URL, "_blank");
+  }
+  function updaterCommand() {
+    return ".\\Update-AppCajaPana.bat";
+  }
+  function copyUpdaterCommand() {
+    var text = updaterCommand();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        toast("Comando de updater copiado");
+      }).catch(function () {
+        toast("Ejecutar Update-AppCajaPana.bat desde la carpeta");
+      });
+      return;
+    }
+    toast("Ejecutar Update-AppCajaPana.bat desde la carpeta");
+  }
+  function defaultDevUiSettings() {
+    return { density: "normal", theme: "green", motion: "on", saleWidth: 520, shelfHeight: 180 };
+  }
+  function devUiSettings() {
+    var defaults = defaultDevUiSettings();
+    try {
+      var saved = JSON.parse(localStorage.getItem("bakeryDevUiSettings") || "{}");
+      Object.keys(defaults).forEach(function (k) { if (saved[k] === undefined || saved[k] === "") saved[k] = defaults[k]; });
+      saved.saleWidth = Math.max(360, Math.min(760, Number(saved.saleWidth || defaults.saleWidth)));
+      saved.shelfHeight = Math.max(120, Math.min(320, Number(saved.shelfHeight || defaults.shelfHeight)));
+      return saved;
+    } catch (e) {
+      return defaults;
+    }
+  }
+  function persistDevUiSettings(settings) {
+    localStorage.setItem("bakeryDevUiSettings", JSON.stringify(settings));
+  }
+  function applyDevUiSettings(settings) {
+    settings = settings || devUiSettings();
+    document.body.classList.remove("ui-compact", "ui-roomy", "theme-green", "theme-warm", "theme-amber", "reduce-motion");
+    document.body.classList.add("theme-" + (settings.theme || "green"));
+    if (settings.density === "compact") document.body.classList.add("ui-compact");
+    if (settings.density === "roomy") document.body.classList.add("ui-roomy");
+    if (settings.motion === "reduced") document.body.classList.add("reduce-motion");
+    document.documentElement.style.setProperty("--sale-width", Number(settings.saleWidth || 520) + "px");
+    document.documentElement.style.setProperty("--product-shelf-height", Number(settings.shelfHeight || 180) + "px");
+    var layout = $("cashierLayout");
+    if (layout) layout.style.setProperty("--sale-width", Number(settings.saleWidth || 520) + "px");
+  }
+  function updateDevUiOutputs() {
+    if ($("devSaleWidthValue")) $("devSaleWidthValue").textContent = ($("devSaleWidth").value || devUiSettings().saleWidth) + " px";
+    if ($("devShelfHeightValue")) $("devShelfHeightValue").textContent = ($("devShelfHeight").value || devUiSettings().shelfHeight) + " px";
+  }
+  function loadDevUiSettings() {
+    var s = devUiSettings();
+    applyDevUiSettings(s);
+    if ($("devDensity")) $("devDensity").value = s.density;
+    if ($("devTheme")) $("devTheme").value = s.theme;
+    if ($("devMotion")) $("devMotion").value = s.motion;
+    if ($("devSaleWidth")) $("devSaleWidth").value = s.saleWidth;
+    if ($("devShelfHeight")) $("devShelfHeight").value = s.shelfHeight;
+    updateDevUiOutputs();
+  }
+  function collectDevUiSettings() {
+    return {
+      density: $("devDensity") ? $("devDensity").value : devUiSettings().density,
+      theme: $("devTheme") ? $("devTheme").value : devUiSettings().theme,
+      motion: $("devMotion") ? $("devMotion").value : devUiSettings().motion,
+      saleWidth: $("devSaleWidth") ? Number($("devSaleWidth").value) : devUiSettings().saleWidth,
+      shelfHeight: $("devShelfHeight") ? Number($("devShelfHeight").value) : devUiSettings().shelfHeight
+    };
+  }
+  function saveDevUiSettings(e) {
+    if (e) e.preventDefault();
+    var s = collectDevUiSettings();
+    persistDevUiSettings(s);
+    applyDevUiSettings(s);
+    updateDevUiOutputs();
+    toast("Configuracion UI guardada");
+  }
+  function previewDevUiSettings() {
+    var s = collectDevUiSettings();
+    applyDevUiSettings(s);
+    updateDevUiOutputs();
+  }
+  function resetDevUiSettings() {
+    var s = defaultDevUiSettings();
+    persistDevUiSettings(s);
+    loadDevUiSettings();
+    toast("UI reseteada");
+  }
+  function resetTabOrder() {
+    localStorage.removeItem("bakeryTabOrder");
+    buildTabs();
+    toast("Orden de tabs reseteado");
+  }
   function callSupabaseFunction(name, body) {
     var s = integrationSettings();
     if (!s.supabaseUrl || !s.supabaseAnonKey) {
@@ -175,6 +366,7 @@
   }
   function add(store, record) { return tx(store, "readwrite", function (os) { os.put(record); return record; }); }
   function del(store, id) { return tx(store, "readwrite", function (os) { os.delete(id); return id; }); }
+  function clearStore(store) { return tx(store, "readwrite", function (os) { os.clear(); return true; }); }
   function all(store) {
     return dbPromise.then(function (db) {
       return new Promise(function (resolve, reject) {
@@ -256,6 +448,8 @@
     buildTabs();
     setDates();
     loadIntegrationSettings();
+    loadDevUiSettings();
+    loadUpdateSettings();
     startMpSync();
     startDateSync();
     renderAll();
@@ -418,6 +612,8 @@
   function saveSale(amount, mode, details, extra) {
     if (isSubmittingSale) return Promise.resolve();
     if (Date.now() - lastSaleAt < 900) return Promise.resolve();
+    extra = extra || {};
+    var method = extra.paymentMethodOverride || PAYMENT;
     amount = Number(amount || 0);
     if (amount <= 0) { toast("Ingrese un monto valido"); return Promise.resolve(); }
     setSubmitting(true);
@@ -426,18 +622,20 @@
     clearTimeout(autoTicketTimer);
     playSound();
     var tr = {
-      id: uid(), type: "SALE", amount: amount, paymentMethod: PAYMENT, businessDate: currentSession.businessDate,
+      id: uid(), type: "SALE", amount: amount, paymentMethod: method, businessDate: currentSession.businessDate,
       shiftType: currentSession.shiftType, userId: currentUser.id, sessionId: currentSession.id,
       createdAt: nowIso(), deleted: false, saleMode: mode || "FAST",
-      transferStatus: PAYMENT === "Transferencia" ? "PENDING" : ""
+      transferStatus: method === "Transferencia" ? "PENDING" : ""
     };
-    Object.keys(extra || {}).forEach(function (k) { tr[k] = extra[k]; });
+    Object.keys(extra).forEach(function (k) {
+      if (k !== "paymentMethodOverride") tr[k] = extra[k];
+    });
     return add("transactions", tr).then(function () {
       if (details && details.length) {
         var basketId = uid();
         tr.basketId = basketId;
         return add("transactions", tr).then(function () {
-          return add("baskets", { id: basketId, createdAt: nowIso(), userId: currentUser.id, total: amount, paymentMethod: PAYMENT, transactionId: tr.id });
+          return add("baskets", { id: basketId, createdAt: nowIso(), userId: currentUser.id, total: amount, paymentMethod: method, transactionId: tr.id });
         }).then(function () {
           return Promise.all(details.map(function (it) {
             return add("basketItems", {
@@ -448,7 +646,7 @@
         });
       }
     }).then(function () {
-      return audit("SALE_CREATED", money(amount) + " " + PAYMENT + " " + (mode || "FAST"), amount > 60000 ? "warning" : "normal");
+      return audit("SALE_CREATED", money(amount) + " " + method + " " + (mode || "FAST"), amount > 60000 ? "warning" : "normal");
     }).then(function () {
       if ($("saleAmount")) $("saleAmount").value = "";
       basket = [];
@@ -717,7 +915,9 @@
     var total = basket.reduce(function (a, b) { return a + b.subtotal; }, 0);
     if (total <= 0) { toast("Ticket vacio"); return; }
     var paid = parseMoney($("ticketPaid") && $("ticketPaid").value);
+    var ticketMethod = $("ticketPaymentSelect") ? $("ticketPaymentSelect").value : PAYMENT;
     saveSale(total, "PRODUCT_BASKET", basket.slice(), {
+      paymentMethodOverride: ticketMethod,
       paidAmount: paid || 0,
       changeAmount: paid ? paid - total : 0,
       itemCount: basket.length
@@ -1605,33 +1805,131 @@
     var days = Number($("metricsRange").value || 30);
     var start = new Date();
     start.setDate(start.getDate() - days + 1);
-    activeTransactions().then(function (trs) {
+    Promise.all([all("transactions"), all("baskets"), all("basketItems"), all("monthlyEntries"), all("productionItems"), all("closures")]).then(function (data) {
+      var allTrs = data[0];
+      var baskets = data[1];
+      var basketItems = data[2];
+      var monthly = data[3];
+      var production = data[4];
+      var closures = data[5];
+      var trs = allTrs.filter(function (t) { return !t.deleted; });
       var scoped = trs.filter(function (t) { return new Date(t.createdAt) >= start; });
+      var deletedScoped = allTrs.filter(function (t) { return t.deleted && new Date(t.createdAt || t.deletedAt || nowIso()) >= start; });
       var sales = scoped.filter(function (t) { return t.type === "SALE"; });
       var cash = sum(sales, function (t) { return t.paymentMethod === "Efectivo"; });
       var transferReceived = sum(sales, function (t) { return t.paymentMethod === "Transferencia" && t.transferStatus === "RECEIVED"; });
       var transferPending = sum(sales, function (t) { return t.paymentMethod === "Transferencia" && (t.transferStatus || "PENDING") === "PENDING"; });
       var transferReview = sum(sales, function (t) { return t.paymentMethod === "Transferencia" && t.transferStatus === "REVIEW"; });
       var withdrawals = sum(scoped, function (t) { return t.type === "WITHDRAWAL"; });
+      var expenses = monthly.filter(function (e) { return e.type !== "RECURRING_RULE" && new Date(e.date || e.createdAt) >= start; });
+      var expenseTotal = sum(expenses, function () { return true; });
+      var completeClosures = closures.filter(function (c) { return (c.closureKind || "COMPLETE") === "COMPLETE" && new Date(c.createdAt || c.businessDate) >= start; });
+      var partialClosures = closures.filter(function (c) { return c.closureKind === "PARTIAL" && new Date(c.createdAt || c.businessDate) >= start; });
+      var productionScoped = production.filter(function (p) { return new Date(p.date || p.createdAt) >= start; });
+      var ticketSales = sales.filter(function (t) { return t.saleMode === "PRODUCT_BASKET" || t.basketId; });
+      var manualSales = sales.length - ticketSales.length;
       var avg = sales.length ? sum(sales, function () { return true; }) / sales.length : 0;
+      var confirmedResult = cash + transferReceived - withdrawals - expenseTotal;
+      var bestDay = bestMetricDay(sales, days);
+      var basketById = {};
+      baskets.forEach(function (b) { basketById[b.id] = b; });
+      var txById = {};
+      sales.forEach(function (t) { txById[t.id] = t; });
+      var productStats = productMetricStats(basketItems, basketById, txById, start);
       $("metricsCards").innerHTML = summary([
         ["Ventas totales", money(sum(sales, function () { return true; }))],
         ["Ventas registradas", sales.length],
         ["Ticket promedio", money(avg)],
         ["Efectivo", money(cash)],
         ["Transferencias recibidas", money(transferReceived)],
-        ["Pagos por revisar", money(transferPending + transferReview)]
+        ["Pagos por revisar", money(transferPending + transferReview)],
+        ["Gastos cargados", money(expenseTotal)],
+        ["Resultado confirmado", money(confirmedResult)],
+        ["Ventas ticket", ticketSales.length],
+        ["Productos vendidos", productStats.totalItems],
+        ["Cierres completos", completeClosures.length],
+        ["Dia mas fuerte", bestDay.label + " " + money(bestDay.total)]
       ]);
       if ($("metricsBreakdown")) $("metricsBreakdown").innerHTML = [
         ["Retiros", money(withdrawals)],
+        ["Ventas manuales", manualSales],
+        ["Ventas por ticket", ticketSales.length],
+        ["Mayor venta", money(maxAmount(sales))],
+        ["Ventas bajas (< $1000)", sales.filter(function (t) { return Number(t.amount || 0) > 0 && Number(t.amount || 0) < 1000; }).length],
+        ["Ventas grandes (> $99.999)", sales.filter(function (t) { return Number(t.amount || 0) > 99999; }).length],
         ["Transferencias pendientes", money(transferPending)],
         ["Transferencias en revision", money(transferReview)],
-        ["Resultado confirmado", money(cash + transferReceived - withdrawals)]
-      ].map(function (row) {
-        return "<div><span>" + row[0] + "</span><b>" + row[1] + "</b></div>";
-      }).join("");
+        ["Resultado confirmado", money(confirmedResult)]
+      ].map(metricLine).join("");
+      if ($("metricsProducts")) $("metricsProducts").innerHTML = productStats.rows.length ? productStats.rows.slice(0, 8).map(function (p, i) {
+        return "<div><span>" + (i + 1) + ". " + escapeHtml(p.name) + "<small>" + p.qty + " vendido(s)</small></span><b>" + money(p.subtotal) + "</b></div>";
+      }).join("") : empty("Sin productos vendidos por ticket en este rango.");
+      if ($("metricsOps")) $("metricsOps").innerHTML = [
+        ["Cierres completos", completeClosures.length],
+        ["Cierres parciales", partialClosures.length],
+        ["Movimientos borrados", deletedScoped.length],
+        ["Stock cargado", productionScoped.length + " entrada(s)"],
+        ["Categorias de gasto", uniqueCount(expenses.map(function (e) { return e.category || "General"; }))],
+        ["Transferencias sin confirmar", sales.filter(function (t) { return t.paymentMethod === "Transferencia" && (t.transferStatus || "PENDING") !== "RECEIVED"; }).length]
+      ].map(metricLine).join("");
+      if ($("metricsCash")) $("metricsCash").innerHTML = [
+        ["Ingresos confirmados", money(cash + transferReceived)],
+        ["Efectivo vs transf.", percent(cash, cash + transferReceived) + " / " + percent(transferReceived, cash + transferReceived)],
+        ["Gastos", money(expenseTotal)],
+        ["Retiros", money(withdrawals)],
+        ["Balance operativo", money(confirmedResult)],
+        ["Promedio por dia", money((cash + transferReceived) / Math.max(1, days))]
+      ].map(metricLine).join("");
       drawChart(sales, days);
+      drawSalesCountChart(sales, days);
+      drawPaymentMixChart(cash, transferReceived, transferPending + transferReview);
+      drawProductRevenueChart(productStats.rows);
     });
+  }
+  function metricLine(row) {
+    return "<div><span>" + row[0] + "</span><b>" + row[1] + "</b></div>";
+  }
+  function maxAmount(rows) {
+    return rows.reduce(function (m, r) { return Math.max(m, Number(r.amount || 0)); }, 0);
+  }
+  function uniqueCount(rows) {
+    var seen = {};
+    rows.forEach(function (r) { seen[r] = true; });
+    return Object.keys(seen).length;
+  }
+  function percent(value, total) {
+    total = Number(total || 0);
+    if (!total) return "0%";
+    return Math.round((Number(value || 0) / total) * 100) + "%";
+  }
+  function bestMetricDay(sales, days) {
+    var best = { label: "-", total: 0 };
+    for (var i = days - 1; i >= 0; i--) {
+      var d = new Date();
+      d.setDate(d.getDate() - i);
+      var key = d.toISOString().slice(0, 10);
+      var total = sum(sales.filter(function (s) { return (s.businessDate || "").slice(0, 10) === key; }), function () { return true; });
+      if (total > best.total) best = { label: key.slice(5), total: total };
+    }
+    return best;
+  }
+  function productMetricStats(items, basketById, txById, start) {
+    var byProduct = {};
+    var totalItems = 0;
+    items.forEach(function (it) {
+      var basket = basketById[it.basketId];
+      var tx = basket && txById[basket.transactionId];
+      if (!tx || new Date(tx.createdAt) < start) return;
+      var key = it.productId || it.productName;
+      if (!byProduct[key]) byProduct[key] = { name: it.productName || "Producto", qty: 0, subtotal: 0 };
+      byProduct[key].qty += Number(it.quantity || 0);
+      byProduct[key].subtotal += Number(it.subtotal || 0);
+      totalItems += Number(it.quantity || 0);
+    });
+    var rows = Object.keys(byProduct).map(function (k) { return byProduct[k]; }).sort(function (a, b) {
+      return b.subtotal - a.subtotal || b.qty - a.qty;
+    });
+    return { rows: rows, totalItems: Math.round(totalItems * 100) / 100 };
   }
   function renderMovements() {
     Promise.all([all("transactions"), all("basketItems")]).then(function (data) {
@@ -1932,6 +2230,102 @@
     ctx.font = "700 14px Arial";
     ctx.fillText("Max " + money(max), 42, 30);
   }
+  function dailyMetricValues(sales, days, mode) {
+    var values = [];
+    for (var i = days - 1; i >= 0; i--) {
+      var d = new Date();
+      d.setDate(d.getDate() - i);
+      var key = d.toISOString().slice(0, 10);
+      var rows = sales.filter(function (s) { return s.businessDate === key; });
+      values.push(mode === "count" ? rows.length : sum(rows, function () { return true; }));
+    }
+    return values;
+  }
+  function prepareCanvas(id) {
+    var canvas = $(id);
+    if (!canvas) return null;
+    canvas.width = Math.max(360, canvas.parentNode.clientWidth - 40);
+    var ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return { canvas: canvas, ctx: ctx };
+  }
+  function drawSalesCountChart(sales, days) {
+    var c = prepareCanvas("salesCountChart");
+    if (!c) return;
+    var values = dailyMetricValues(sales, days, "count");
+    var max = Math.max.apply(Math, values.concat([1]));
+    var barW = Math.max(3, (c.canvas.width - 70) / Math.max(1, values.length));
+    c.ctx.fillStyle = "#eef6f1";
+    c.ctx.fillRect(34, 28, c.canvas.width - 54, c.canvas.height - 58);
+    c.ctx.fillStyle = "#295f9d";
+    values.forEach(function (v, i) {
+      var h = (v / max) * (c.canvas.height - 82);
+      c.ctx.fillRect(42 + i * barW, c.canvas.height - 34 - h, Math.max(2, barW - 2), h);
+    });
+    c.ctx.fillStyle = "#24211d";
+    c.ctx.font = "700 14px Arial";
+    c.ctx.fillText("Max " + max + " venta(s)", 42, 22);
+  }
+  function drawPaymentMixChart(cash, received, pending) {
+    var c = prepareCanvas("paymentMixChart");
+    if (!c) return;
+    var values = [
+      { label: "Efectivo", value: cash, color: "#24784c" },
+      { label: "Transferencias", value: received, color: "#295f9d" },
+      { label: "Por revisar", value: pending, color: "#d79b30" }
+    ];
+    var total = values.reduce(function (a, b) { return a + Number(b.value || 0); }, 0);
+    var cx = 100, cy = c.canvas.height / 2, r = 58, start = -Math.PI / 2;
+    values.forEach(function (v) {
+      var slice = total ? (v.value / total) * Math.PI * 2 : 0;
+      c.ctx.beginPath();
+      c.ctx.moveTo(cx, cy);
+      c.ctx.arc(cx, cy, r, start, start + slice);
+      c.ctx.closePath();
+      c.ctx.fillStyle = v.color;
+      c.ctx.fill();
+      start += slice;
+    });
+    if (!total) {
+      c.ctx.beginPath();
+      c.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      c.ctx.fillStyle = "#eef0ee";
+      c.ctx.fill();
+    }
+    values.forEach(function (v, i) {
+      var y = 58 + i * 38;
+      c.ctx.fillStyle = v.color;
+      c.ctx.fillRect(190, y - 12, 18, 18);
+      c.ctx.fillStyle = "#24211d";
+      c.ctx.font = "700 13px Arial";
+      c.ctx.fillText(v.label + " " + percent(v.value, total), 218, y + 2);
+    });
+  }
+  function drawProductRevenueChart(rows) {
+    var c = prepareCanvas("productRevenueChart");
+    if (!c) return;
+    rows = rows.slice(0, 6);
+    var max = Math.max.apply(Math, rows.map(function (r) { return r.subtotal; }).concat([1]));
+    c.ctx.font = "700 12px Arial";
+    rows.forEach(function (r, i) {
+      var y = 34 + i * 30;
+      var w = (Number(r.subtotal || 0) / max) * (c.canvas.width - 190);
+      c.ctx.fillStyle = "#eaf4ee";
+      c.ctx.fillRect(132, y - 15, c.canvas.width - 162, 20);
+      c.ctx.fillStyle = "#24784c";
+      c.ctx.fillRect(132, y - 15, w, 20);
+      c.ctx.fillStyle = "#24211d";
+      c.ctx.fillText(String(r.name || "Producto").slice(0, 17), 12, y);
+      c.ctx.fillText(money(r.subtotal), 140 + w, y);
+    });
+    if (!rows.length) {
+      c.ctx.fillStyle = "#6f675d";
+      c.ctx.font = "700 15px Arial";
+      c.ctx.fillText("Sin ventas por producto", 28, 42);
+    }
+  }
 
   function activityTone(a) {
     var action = String(a.action || "");
@@ -1972,9 +2366,25 @@
     if (!isAdmin()) return;
     all("users").then(function (users) {
       users = users.filter(function (u) { return u.username !== "dev" && u.role !== "dev"; });
-      $("usersList").innerHTML = "<table><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th></tr>" + users.map(function (u) {
-        return "<tr><td>" + u.username + "</td><td>" + u.displayName + "</td><td>" + u.role + "</td><td>" + (u.active ? "Activo" : "Inactivo") + "</td></tr>";
-      }).join("") + "</table>";
+      if ($("usersSummary")) {
+        $("usersSummary").innerHTML = summary([
+          ["Visibles", users.length],
+          ["Empleados", users.filter(function (u) { return u.role === "employee"; }).length],
+          ["Admins", users.filter(function (u) { return u.role === "admin"; }).length],
+          ["Inactivos", users.filter(function (u) { return !u.active; }).length]
+        ]);
+      }
+      $("usersList").innerHTML = users.length ? users.map(function (u) {
+        var roleLabel = u.role === "admin" ? "Admin" : u.role === "dev" ? "Developer" : "Empleado";
+        var initials = (u.displayName || u.username || "?").trim().slice(0, 2).toUpperCase();
+        return "<article class='user-row " + (u.active ? "active" : "inactive") + "'>"
+          + "<div class='user-avatar'>" + escapeHtml(initials) + "</div>"
+          + "<div class='user-main'><strong>" + escapeHtml(u.displayName || u.username) + "</strong><span>@" + escapeHtml(u.username) + "</span></div>"
+          + "<span class='user-role " + escapeHtml(u.role || "employee") + "'>" + roleLabel + "</span>"
+          + "<span class='user-status " + (u.active ? "ok" : "off") + "'>" + (u.active ? "Activo" : "Inactivo") + "</span>"
+          + "<small>" + escapeHtml((u.createdAt || "").slice(0, 10) || "Sin fecha") + "</small>"
+          + "</article>";
+      }).join("") : empty("No hay usuarios visibles.");
     });
     renderActivity();
   }
@@ -2000,6 +2410,155 @@
       $("exportBox").classList.remove("hidden");
     });
   }
+  function rand(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+  function isoAt(date, hour, minute) {
+    var d = new Date(date + "T00:00:00");
+    d.setHours(hour, minute || 0, rand(0, 59), 0);
+    return d.toISOString();
+  }
+  function addDaysTo(date, offset) {
+    var d = new Date(date);
+    d.setDate(d.getDate() + offset);
+    return d.toISOString().slice(0, 10);
+  }
+  function sample(arr) {
+    return arr[rand(0, arr.length - 1)];
+  }
+  function generateTestData() {
+    if (!isDev()) return;
+    var months = Math.max(1, Math.min(6, Number($("testDataMonths").value || 6)));
+    var days = months * 30;
+    toast("Generando datos de prueba...");
+    Promise.all([all("users"), all("products")]).then(function (data) {
+      var users = data[0];
+      var products = data[1].filter(function (p) { return p.active !== false; });
+      var turnoAM = users.filter(function (u) { return u.username === "turno_manana"; })[0] || currentUser;
+      var turnoPM = users.filter(function (u) { return u.username === "turno_tarde"; })[0] || currentUser;
+      if (!products.length) return seed().then(generateTestData);
+      var todayDate = today();
+      var tasks = [];
+      for (var offset = days - 1; offset >= 0; offset--) {
+        var date = addDaysTo(todayDate, -offset);
+        var weekday = new Date(date + "T00:00:00").getDay();
+        var dailySales = weekday === 0 ? rand(14, 24) : rand(26, 58);
+        ["AM", "PM"].forEach(function (shift) {
+          var user = shift === "AM" ? turnoAM : turnoPM;
+          var shiftSales = Math.max(4, Math.round(dailySales * (shift === "AM" ? .48 : .52)));
+          var shiftCash = 0;
+          var shiftTransfer = 0;
+          var shiftWithdrawals = 0;
+          for (var i = 0; i < shiftSales; i++) {
+            var isTicket = Math.random() > .38;
+            var method = Math.random() > .32 ? "Efectivo" : "Transferencia";
+            var hour = shift === "AM" ? rand(7, 13) : rand(14, 20);
+            var minute = rand(0, 59);
+            var created = isoAt(date, hour, minute);
+            var transactionId = uid();
+            var basketId = isTicket ? uid() : "";
+            var itemCount = isTicket ? rand(1, 4) : 0;
+            var amount = 0;
+            var items = [];
+            if (isTicket) {
+              for (var j = 0; j < itemCount; j++) {
+                var p = sample(products);
+                var qty = p.unitType === "kg" ? (rand(1, 12) / 10) : rand(1, 5);
+                var subtotal = Math.max(300, Math.round(qty * Number(p.price || 1000)));
+                amount += subtotal;
+                items.push({ product: p, qty: qty, subtotal: subtotal });
+              }
+            } else {
+              amount = [500, 800, 1000, 1500, 2000, 2500, 3000, 4500, 6000, 8500, 12000][rand(0, 10)];
+              if (Math.random() > .97) amount = rand(100000, 180000);
+            }
+            if (method === "Efectivo") shiftCash += amount;
+            else shiftTransfer += amount;
+            var transferStatus = method === "Transferencia" ? (Math.random() > .12 ? "RECEIVED" : (Math.random() > .5 ? "PENDING" : "REVIEW")) : "";
+            tasks.push(add("transactions", {
+              id: transactionId, type: "SALE", amount: amount, paymentMethod: method, businessDate: date,
+              shiftType: shift, userId: user && user.id, sessionId: "test-" + date + "-" + shift,
+              createdAt: created, deleted: false, saleMode: isTicket ? "PRODUCT_BASKET" : "FAST",
+              basketId: basketId, transferStatus: transferStatus, paidAmount: isTicket ? amount + [0, 500, 1000, 2000][rand(0, 3)] : 0,
+              changeAmount: 0, itemCount: itemCount
+            }));
+            if (isTicket) {
+              tasks.push(add("baskets", { id: basketId, createdAt: created, userId: user && user.id, total: amount, paymentMethod: method, transactionId: transactionId }));
+              items.forEach(function (it) {
+                tasks.push(add("basketItems", { id: uid(), basketId: basketId, productId: it.product.id, productName: it.product.name, quantity: it.qty, unitPrice: Number(it.product.price || 0), subtotal: it.subtotal }));
+              });
+            }
+          }
+          if (Math.random() > .35) {
+            var withdrawal = [2000, 5000, 10000, 15000, 20000][rand(0, 4)];
+            shiftWithdrawals += withdrawal;
+            tasks.push(add("transactions", {
+              id: uid(), type: "WITHDRAWAL", amount: withdrawal, paymentMethod: "Efectivo", businessDate: date,
+              shiftType: shift, userId: user && user.id, sessionId: "test-" + date + "-" + shift,
+              createdAt: isoAt(date, shift === "AM" ? 12 : 18, rand(0, 59)), deleted: false, withdrawnBy: "Encargado test"
+            }));
+          }
+          tasks.push(add("closures", {
+            id: uid(), businessDate: date, shiftType: shift, closureKind: "COMPLETE",
+            totalSales: shiftCash + shiftTransfer, expectedCash: shiftCash - shiftWithdrawals, expectedTransfer: shiftTransfer,
+            countedCash: shiftCash - shiftWithdrawals + [-500, 0, 0, 0, 500][rand(0, 4)],
+            countedTransfer: shiftTransfer, differenceCash: 0, differenceTransfer: 0,
+            notes: "Cierre test", createdBy: user && user.id, createdAt: isoAt(date, shift === "AM" ? 14 : 21, 0)
+          }));
+        });
+        if (weekday !== 0) {
+          products.slice(0, Math.min(products.length, rand(4, 8))).forEach(function (p) {
+            tasks.push(add("productionItems", {
+              id: uid(), date: date, productId: p.id, productName: p.name, unitType: p.unitType || "unidad",
+              enteredAmount: p.unitType === "kg" ? rand(8, 95) : rand(12, 160), category: p.category || "",
+              createdBy: currentUser && currentUser.id, createdAt: isoAt(date, 6, rand(20, 50))
+            }));
+          });
+        }
+        if (weekday === 1 || Math.random() > .88) {
+          tasks.push(add("monthlyEntries", {
+            id: uid(), type: "EXPENSE", date: date, amount: [8000, 15000, 28000, 45000, 70000][rand(0, 4)],
+            category: sample(monthlyCategories), description: "Gasto test", paymentMethod: Math.random() > .5 ? "Efectivo" : "Transferencia",
+            recurring: false, weekday: weekday, photoData: "", createdBy: currentUser && currentUser.id, createdAt: isoAt(date, 16, rand(0, 59))
+          }));
+        }
+      }
+      tasks.push(audit("TEST_DATA_GENERATED", months + " mes(es) de datos de prueba", "warning"));
+      return Promise.all(tasks);
+    }).then(function () {
+      renderAll();
+      toast("Datos de prueba generados");
+    });
+  }
+  function clearAllData() {
+    if (!isDev()) return;
+    $("clearDataConfirm").value = "";
+    $("clearDataModal").classList.remove("hidden");
+    $("clearDataConfirm").focus();
+  }
+  function closeClearDataModal() {
+    $("clearDataModal").classList.add("hidden");
+  }
+  function confirmClearAllData(e) {
+    if (e) e.preventDefault();
+    if (!isDev()) return;
+    var confirmation = $("clearDataConfirm").value.trim();
+    if (confirmation !== "BORRAR") {
+      toast("Escriba BORRAR para confirmar");
+      $("clearDataConfirm").focus();
+      return;
+    }
+    $("clearDataModal").classList.add("hidden");
+    toast("Borrando datos...");
+    Promise.all(STORES.map(clearStore)).then(function () {
+      sessionStorage.removeItem("bakerySession");
+      localStorage.removeItem("bakeryTabOrder");
+      return seed();
+    }).then(function () {
+      toast("Datos borrados. Inicie sesion de nuevo.");
+      setTimeout(function () { location.reload(); }, 600);
+    });
+  }
 
   function renderAll() {
     renderCaja();
@@ -2010,6 +2569,29 @@
     if (currentTab === "Movimientos") renderMovements();
     if (currentTab === "Actividad") renderActivity();
     if (currentTab === "Usuarios" || currentTab === "Dev") renderAdmin();
+    if (currentTab === "Dev") renderDev();
+  }
+  function renderDev() {
+    if (!isDev()) return;
+    Promise.all(STORES.map(all)).then(function (sets) {
+      var totals = {};
+      STORES.forEach(function (s, i) { totals[s] = sets[i].length; });
+      if ($("devSummary")) {
+        $("devSummary").innerHTML = summary([
+          ["Ventas", totals.transactions],
+          ["Productos", totals.products],
+          ["Usuarios", totals.users],
+          ["Auditoria", totals.auditLog]
+        ]);
+      }
+      if ($("devStoreList")) {
+        $("devStoreList").innerHTML = STORES.map(function (name) {
+          return "<div><span>" + escapeHtml(name) + "</span><b>" + totals[name] + "</b></div>";
+        }).join("");
+      }
+      loadDevUiSettings();
+      loadUpdateSettings();
+    });
   }
   function sum(rows, predicate, field) {
     field = field || "amount";
@@ -2055,9 +2637,20 @@
     var handle = 14;
     var leftWidth = Math.max(minLeft, Math.min(splitDrag.width - minRight - handle, e.clientX - splitDrag.left));
     splitDrag.layout.style.setProperty("--sale-width", leftWidth + "px");
+    document.documentElement.style.setProperty("--sale-width", leftWidth + "px");
+    if ($("devSaleWidth")) {
+      $("devSaleWidth").value = Math.round(leftWidth / 10) * 10;
+      updateDevUiOutputs();
+    }
   }
   function stopSplitResize() {
     if (!splitDrag) return;
+    var s = devUiSettings();
+    var value = parseInt(document.documentElement.style.getPropertyValue("--sale-width"), 10);
+    if (value) {
+      s.saleWidth = value;
+      persistDevUiSettings(s);
+    }
     splitDrag = null;
     document.body.classList.remove("resizing-split");
   }
@@ -2074,9 +2667,19 @@
     if (!shelfDrag) return;
     var height = Math.max(120, Math.min(320, e.clientY - shelfDrag.top));
     document.documentElement.style.setProperty("--product-shelf-height", height + "px");
+    if ($("devShelfHeight")) {
+      $("devShelfHeight").value = Math.round(height / 10) * 10;
+      updateDevUiOutputs();
+    }
   }
   function stopShelfResize() {
     if (!shelfDrag) return;
+    var s = devUiSettings();
+    var value = parseInt(document.documentElement.style.getPropertyValue("--product-shelf-height"), 10);
+    if (value) {
+      s.shelfHeight = value;
+      persistDevUiSettings(s);
+    }
     shelfDrag = null;
     document.body.classList.remove("resizing-shelf");
   }
@@ -2095,6 +2698,27 @@
     $("userForm").onsubmit = saveUser;
     $("exportBtn").onclick = exportData;
     $("integrationForm").onsubmit = saveIntegrationSettings;
+    if ($("devUiForm")) $("devUiForm").onsubmit = saveDevUiSettings;
+    if ($("devDensity")) $("devDensity").onchange = previewDevUiSettings;
+    if ($("devTheme")) $("devTheme").onchange = previewDevUiSettings;
+    if ($("devMotion")) $("devMotion").onchange = previewDevUiSettings;
+    if ($("devSaleWidth")) $("devSaleWidth").oninput = previewDevUiSettings;
+    if ($("devShelfHeight")) $("devShelfHeight").oninput = previewDevUiSettings;
+    if ($("resetDevUiBtn")) $("resetDevUiBtn").onclick = resetDevUiSettings;
+    if ($("resetTabOrderBtn")) $("resetTabOrderBtn").onclick = resetTabOrder;
+    if ($("autoUpdateCheck")) $("autoUpdateCheck").onchange = saveUpdateSettings;
+    if ($("checkUpdatesBtn")) $("checkUpdatesBtn").onclick = function () { checkForUpdates(false); };
+    if ($("copyUpdaterCommandBtn")) $("copyUpdaterCommandBtn").onclick = copyUpdaterCommand;
+    if ($("downloadUpdateBtn")) $("downloadUpdateBtn").onclick = downloadUpdate;
+    if ($("openRepoBtn")) $("openRepoBtn").onclick = openUpdateRepo;
+    if ($("closeUpdateModal")) $("closeUpdateModal").onclick = closeUpdateModal;
+    if ($("copyUpdaterCommandModalBtn")) $("copyUpdaterCommandModalBtn").onclick = copyUpdaterCommand;
+    if ($("downloadUpdateModalBtn")) $("downloadUpdateModalBtn").onclick = downloadUpdate;
+    if ($("openRepoModalBtn")) $("openRepoModalBtn").onclick = openUpdateRepo;
+    if ($("generateTestDataBtn")) $("generateTestDataBtn").onclick = generateTestData;
+    if ($("clearAllDataBtn")) $("clearAllDataBtn").onclick = clearAllData;
+    if ($("clearDataForm")) $("clearDataForm").onsubmit = confirmClearAllData;
+    if ($("closeClearDataModal")) $("closeClearDataModal").onclick = closeClearDataModal;
     $("salePaymentSelect").onchange = function () { setPayment($("salePaymentSelect").value); };
     $("applyWorkShift").onclick = function () {
       currentSession.businessDate = $("workDateInput").value || currentSession.businessDate;
@@ -2165,6 +2789,7 @@
     };
     $("saleAmount").oninput = scheduleSaleAutoSave;
     $("ticketPaid").oninput = renderBasket;
+    if ($("ticketPaymentSelect")) $("ticketPaymentSelect").onchange = renderBasket;
     $("productModal").onclick = function (e) { if (e.target === $("productModal") && selectedProduct) $("productQuantityInput").focus(); };
     $("productModal").oncontextmenu = function (e) { e.preventDefault(); if (selectedProduct) closeProductModal(); };
     $("withdrawModal").onclick = function (e) { if (e.target === $("withdrawModal")) closeWithdrawModal(); };
@@ -2175,6 +2800,8 @@
     $("reviewTransfersModal").onclick = function (e) { if (e.target === $("reviewTransfersModal")) closeReviewTransfersModal(); };
     $("movementEditModal").onclick = function (e) { if (e.target === $("movementEditModal")) closeMovementEdit(); };
     $("movementDeleteModal").onclick = function (e) { if (e.target === $("movementDeleteModal")) closeMovementDelete(); };
+    if ($("clearDataModal")) $("clearDataModal").onclick = function (e) { if (e.target === $("clearDataModal")) closeClearDataModal(); };
+    if ($("updateModal")) $("updateModal").onclick = function (e) { if (e.target === $("updateModal")) closeUpdateModal(); };
     document.querySelectorAll(".pay-btn").forEach(function (b) { b.onclick = function () { setPayment(b.dataset.payment); }; });
     $("calcAdd").onclick = function () { addCalc(parseMoney($("calcAmount").value)); };
     $("calcClear").onclick = function () { calcItems = []; $("calcPaid").value = ""; renderCalc(); };
@@ -2225,11 +2852,14 @@
       return;
     }
     bind();
+    loadDevUiSettings();
+    loadUpdateSettings();
     fillSelects();
     setPayment("Efectivo");
     setSaleMode("quick");
     seed().then(function () {
       restoreSession();
+      if (updateSettings().autoCheck !== false) checkForUpdates(true);
       // PWA registration is intentionally left off during local preview so UI changes are never hidden by cache.
     });
   });

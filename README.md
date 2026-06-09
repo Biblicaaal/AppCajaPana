@@ -23,6 +23,25 @@ Usuarios iniciales:
 - Cierres, metricas, movimientos, actividad, usuarios y herramientas dev.
 - Nuevas secciones Mensual y Produccion.
 - Modo opcional de canasta de productos.
+- Checker de updates en Dev: revisa `update.json` en GitHub al iniciar y ofrece descargar el ZIP del repo.
+
+## Updates
+
+La app estatica puede detectar updates en GitHub al iniciar. Para instalar una version nueva en una terminal, cerrar la app y ejecutar:
+
+`Update-AppCajaPana.bat`
+
+Ese script descarga la ultima version desde GitHub, crea un backup en `_backups`, e instala los archivos nuevos en la carpeta del programa.
+
+Tambien se puede probar sin tocar archivos con:
+
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\update-app.ps1 -WhatIf`
+
+Para publicar una version nueva:
+
+1. Actualizar `APP_VERSION` en `app.js`.
+2. Actualizar `version` y `notes` en `update.json`.
+3. Subir los cambios a GitHub.
 
 ## Mercado Pago automatico
 
