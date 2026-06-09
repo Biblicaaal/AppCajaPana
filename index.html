@@ -12,18 +12,18 @@
 <audio id="cashSound" src="assets/cash_register.mp3" preload="auto"></audio>
 
 <section id="loginView" class="login-body">
-  <form id="loginForm" class="login-card" autocomplete="off">
+  <form id="loginForm" class="login-card" autocomplete="off" autocapitalize="off" spellcheck="false">
     <img src="assets/logo.png" class="logo" alt="Logo">
     <h1>Inicio de sesion</h1>
     <label>Usuario</label>
-    <select id="loginUser" required>
+    <select id="loginUser" required autocomplete="off">
       <option value="admin">admin</option>
       <option value="dev">dev</option>
-      <option value="turno_manana">turno_manana</option>
+      <option value="turno_manana" selected>turno_manana</option>
       <option value="turno_tarde">turno_tarde</option>
     </select>
     <label>Contrasena</label>
-    <input id="loginPass" type="password" required autofocus value="2711">
+    <input id="loginPass" type="password" required autofocus autocomplete="new-password" inputmode="numeric" name="login_pin">
     <div class="login-two">
       <div>
         <label>Fecha de trabajo</label>
@@ -38,9 +38,8 @@
       </div>
     </div>
     <label>Cambio inicial en caja</label>
-    <input id="openingCash" placeholder="Puede ser 0" value="0">
+    <input id="openingCash" placeholder="Puede ser 0" value="0" autocomplete="off">
     <button class="big primary" type="submit">INGRESAR</button>
-    <div class="msg ok">Usuarios iniciales: admin/dev 2711, turno_manana/turno_tarde 1234.</div>
   </form>
 </section>
 
@@ -59,6 +58,7 @@
       <select id="workShiftInput">
         <option value="AM">AM</option>
         <option value="PM">PM</option>
+        <option value="AMBOS">AM + PM</option>
       </select>
       <button id="applyWorkShift" type="button">Aplicar</button>
     </form>
@@ -69,9 +69,10 @@
       <details id="productShelf" class="product-shelf" open>
         <summary><span>Productos rapidos</span><b>⌄</b></summary>
         <div id="productGrid" class="product-grid product-strip"></div>
+        <button id="shelfResizeHandle" class="shelf-resize-handle" type="button" aria-label="Ajustar altura de productos rapidos"></button>
       </details>
 
-      <section class="cash-grid cashier-layout">
+      <section id="cashierLayout" class="cash-grid cashier-layout">
         <div class="panel sale cashier-left">
           <div class="sale-title-row">
             <h1>VENTA</h1>
@@ -94,6 +95,8 @@
             <button id="openWithdrawBtn" class="withdraw-btn" type="button">Retiro de dinero</button>
           </div>
         </div>
+
+        <button id="splitResizeHandle" class="split-resize-handle" type="button" aria-label="Ajustar ancho de venta y ticket"></button>
 
         <aside class="panel ticket-panel">
           <div class="ticket-head">
@@ -134,16 +137,13 @@
           <button id="closeProductModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
           <div class="product-modal-icon" id="productModalIcon"></div>
           <h2 id="productModalTitle">Producto</h2>
-          <label>Precio cargado
-            <input id="productPriceInput" placeholder="Precio por unidad/kg">
-          </label>
+          <input id="productPriceInput" type="hidden">
           <label id="productQuantityLabel">Cantidad
-            <input id="productQuantityInput" placeholder="Ej: 1">
+            <input id="productQuantityInput" placeholder="Ingrese cantidad">
           </label>
           <div class="modal-total"><span>Total</span><b id="productModalTotal">$ 0,00</b></div>
           <div class="modal-actions">
-            <button id="registerProductNow" class="success" type="submit">Registrar venta</button>
-            <button id="addProductToTicket" class="primary" type="button">Agregar al ticket</button>
+            <button id="addProductToTicket" class="primary" type="submit">Agregar al ticket</button>
           </div>
         </form>
       </div>
@@ -187,24 +187,18 @@
             </div>
             <button id="newProductBtn" class="primary" type="button">Nuevo producto</button>
           </div>
-          <form id="productEditorForm" class="editor-form" autocomplete="off">
-            <input id="editProductId" type="hidden">
-            <label>Nombre
+          <div id="productEditorList" class="editor-list"></div>
+        </div>
+      </div>
+
+      <div id="productFormModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="productEditorForm" class="modal-card modal-wide product-form-card" autocomplete="off">
+          <button id="closeProductFormModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2 id="productFormTitle">Producto</h2>
+          <input id="editProductId" type="hidden">
+          <section class="product-form-grid">
+            <label>Name
               <input id="editProductName" placeholder="Ej: Pan">
-            </label>
-            <label>Se vende por
-              <select id="editProductUnit">
-                <option value="kg">kg</option>
-                <option value="gr">gr</option>
-                <option value="unidad">unidad</option>
-                <option value="cantidad">cantidad</option>
-                <option value="paquete">paquete</option>
-                <option value="docena">docena</option>
-                <option value="litro">litro</option>
-              </select>
-            </label>
-            <label>Precio
-              <input id="editProductPrice" placeholder="Precio">
             </label>
             <label>Precio por
               <select id="editProductPriceUnit">
@@ -217,16 +211,37 @@
                 <option value="litro">litro</option>
               </select>
             </label>
-            <label>Categoria
+            <label>Precio
+              <input id="editProductPrice" placeholder="Precio">
+            </label>
+            <label>Category
               <input id="editProductCategory" placeholder="Panaderia">
             </label>
-            <label>Imagen
+            <label>Image Selection
               <input id="editProductImage" type="file" accept="image/*">
             </label>
-            <button class="success" type="submit">Guardar producto</button>
-          </form>
-          <div id="productEditorList" class="editor-list"></div>
-        </div>
+            <label>Se vende por
+              <select id="editProductUnit">
+                <option value="kg">kg</option>
+                <option value="gr">gr</option>
+                <option value="unidad">unidad</option>
+                <option value="cantidad">cantidad</option>
+                <option value="paquete">paquete</option>
+                <option value="docena">docena</option>
+                <option value="litro">litro</option>
+              </select>
+            </label>
+          </section>
+          <section id="cropEditor" class="crop-editor hidden">
+            <div id="cropPreview" class="crop-preview"></div>
+            <div class="crop-controls">
+              <label>Zoom <input id="cropZoom" type="range" min="1" max="2.5" step="0.05" value="1"></label>
+              <label>Horizontal <input id="cropX" type="range" min="-100" max="100" step="1" value="0"></label>
+              <label>Vertical <input id="cropY" type="range" min="-100" max="100" step="1" value="0"></label>
+            </div>
+          </section>
+          <button class="big success" type="submit">Guardar producto</button>
+        </form>
       </div>
 
       <div id="customItemModal" class="modal hidden" role="dialog" aria-modal="true">
@@ -257,111 +272,295 @@
           <button class="big success" type="submit">Agregar al ticket</button>
         </form>
       </div>
+
     </section>
 
-    <section id="tabCierres" class="tab-page hidden">
-      <h1>Cierre guiado</h1>
+    <section id="tabCierres" class="tab-page hidden closures-page">
+      <div class="section-title">
+        <div>
+          <p>Cierre de turno</p>
+          <h1>Control de caja</h1>
+        </div>
+        <span id="closureShiftPill" class="soft-pill">Turno</span>
+      </div>
       <section class="close-dashboard">
-        <div class="close-card expected"><span>Efectivo que deberia haber</span><b id="expectedCashCard">$ 0,00</b><small>Caja inicial + ventas efectivo - retiros</small></div>
-        <div class="close-card transfer"><span>Transferencias que deberian estar</span><b id="expectedTransferCard">$ 0,00</b><small>Total vendido por transferencia</small></div>
+        <div class="close-card expected">
+          <span>Efectivo esperado</span>
+          <b id="expectedCashCard">$ 0,00</b>
+          <small>Caja inicial + ventas en efectivo - retiros</small>
+        </div>
+        <div class="close-card transfer">
+          <span>Transferencias esperadas</span>
+          <b id="expectedTransferCard">$ 0,00</b>
+          <small>Solo transferencias confirmadas como recibidas</small>
+        </div>
+        <button id="reviewPaymentsCard" class="close-card review" type="button">
+          <span>Pagos por revisar</span>
+          <b id="reviewTransferCard">$ 0,00</b>
+          <small>Pendientes, rechazados o pendientes de confirmacion</small>
+        </button>
       </section>
-      <section class="report-box">
-        <h2>Resumen seleccionado</h2>
-        <div id="closureExpected" class="summary-grid"></div>
+      <section class="close-workspace">
+        <div class="report-box close-summary-box">
+          <h2>Resumen del turno</h2>
+          <div id="closureExpected" class="summary-grid closure-summary"></div>
+          <div id="closureWarnings" class="closure-warnings"></div>
+        </div>
+        <section class="report-box close-form-box">
+          <h2>Nuevo cierre</h2>
+          <form id="closureForm" class="close-form">
+            <label>Efectivo contado
+              <input id="countedCash" value="0" inputmode="decimal">
+            </label>
+            <label>Transferencia / Mercado Pago contado
+              <input id="countedTransfer" value="0" inputmode="decimal">
+            </label>
+            <div class="live-result">
+              <div><span>Diferencia efectivo</span><b id="cashDiff">$ 0,00</b></div>
+              <div><span>Diferencia transferencia</span><b id="transferDiff">$ 0,00</b></div>
+            </div>
+            <label>Observaciones
+              <textarea id="closureNotes" placeholder="Obligatorio si hay diferencia o pagos por revisar"></textarea>
+            </label>
+            <div class="closure-actions">
+              <button class="big primary" name="closureKind" value="PARTIAL" type="submit">Cierre parcial</button>
+              <button class="big success" name="closureKind" value="COMPLETE" type="submit">Cierre completo</button>
+            </div>
+          </form>
+        </section>
       </section>
-      <section class="report-box">
-        <h2>Nuevo cierre paso a paso</h2>
-        <form id="closureForm" class="close-form">
-          <label>Efectivo contado</label>
-          <input id="countedCash" value="0">
-          <label>Transferencia / Mercado Pago contado</label>
-          <input id="countedTransfer" value="0">
-          <div class="live-result">
-            <div>Diferencia efectivo: <b id="cashDiff">$ 0,00</b></div>
-            <div>Diferencia transferencia: <b id="transferDiff">$ 0,00</b></div>
-          </div>
-          <label>Observaciones</label>
-          <input id="closureNotes" placeholder="Obligatorio si hay diferencia">
-          <button class="big primary">Guardar cierre</button>
-        </form>
+      <section class="report-box missed-closures-box">
+        <h2>Cierres pendientes</h2>
+        <div id="missedClosuresList" class="missed-closures-list"></div>
       </section>
       <section class="report-box">
         <h2>Ultimos cierres</h2>
-        <div id="closuresList" class="table-scroll"></div>
+        <div id="closuresList" class="closures-list"></div>
       </section>
+      <div id="reviewTransfersModal" class="modal hidden" role="dialog" aria-modal="true">
+        <div class="modal-card modal-wide review-transfers-card">
+          <button id="closeReviewTransfersModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Pagos por revisar</h2>
+          <p class="modal-note">Transferencias del turno actual que todavia no fueron confirmadas.</p>
+          <div id="reviewTransfersList" class="review-transfers-list"></div>
+        </div>
+      </div>
     </section>
 
-    <section id="tabMetricas" class="tab-page hidden">
-      <h1>Metricas</h1>
-      <form class="filter">
-        <label>Rango</label>
-        <select id="metricsRange">
-          <option value="15">Ultimos 15 dias</option>
-          <option value="30" selected>Ultimos 30 dias</option>
-          <option value="90">Ultimos 90 dias</option>
-          <option value="365">1 ano</option>
-        </select>
-      </form>
+    <section id="tabMetricas" class="tab-page hidden metrics-page">
+      <div class="section-title">
+        <div>
+          <p>Lectura rapida</p>
+          <h1>Metricas</h1>
+        </div>
+        <form class="filter metrics-filter">
+          <label>Rango
+            <select id="metricsRange">
+              <option value="15">Ultimos 15 dias</option>
+              <option value="30" selected>Ultimos 30 dias</option>
+              <option value="90">Ultimos 90 dias</option>
+              <option value="365">1 ano</option>
+            </select>
+          </label>
+        </form>
+      </div>
       <section id="metricsCards" class="metrics-cards"></section>
-      <section class="report-box"><h2>Ventas por dia</h2><canvas id="salesChart" height="190"></canvas></section>
-    </section>
-
-    <section id="tabMovimientos" class="tab-page hidden">
-      <h1>Movimientos</h1>
-      <section class="report-box"><div id="movementsList" class="table-scroll"></div></section>
-    </section>
-
-    <section id="tabMensual" class="tab-page hidden">
-      <h1>Mensual</h1>
-      <section class="report-box">
-        <form class="filter"><label>Mes</label><input id="monthPicker" type="month"></form>
-        <div id="monthlySummary" class="summary-grid"></div>
+      <section class="metrics-workspace">
+        <section class="report-box metrics-chart-box"><h2>Ventas por dia</h2><canvas id="salesChart" height="250"></canvas></section>
+        <section class="report-box"><h2>Detalle del rango</h2><div id="metricsBreakdown" class="metrics-breakdown"></div></section>
       </section>
-      <section class="cash-grid monthly-grid">
-        <div class="panel expense">
-          <h1>MOVIMIENTO</h1>
-          <form id="monthlyForm">
-            <select id="monthlyType"><option value="INCOME">Ingreso extra</option><option value="BIG_EXPENSE">Gasto grande</option></select>
-            <input id="monthlyDate" type="date">
-            <input id="monthlyAmount" placeholder="Monto">
-            <select id="monthlyCategory"></select>
-            <input id="monthlyDescription" placeholder="Descripcion">
-            <select id="monthlyPayment"><option>Efectivo</option><option>Transferencia</option><option>Otro</option></select>
-            <button class="big danger">GUARDAR MENSUAL</button>
+    </section>
+
+    <section id="tabMovimientos" class="tab-page hidden movements-page">
+      <div class="section-title">
+        <div>
+          <p>Control admin</p>
+          <h1>Movimientos</h1>
+        </div>
+        <span id="movementSelectionPill" class="soft-pill">0 seleccionados</span>
+      </div>
+      <section class="report-box movement-control-box">
+        <form id="movementFilters" class="movement-filters" autocomplete="off">
+          <label>Desde<input id="movementDateFrom" type="date"></label>
+          <label>Hasta<input id="movementDateTo" type="date"></label>
+          <label>Monto min<input id="movementAmountMin" inputmode="decimal" placeholder="$ min"></label>
+          <label>Monto max<input id="movementAmountMax" inputmode="decimal" placeholder="$ max"></label>
+          <label>Tipo
+            <select id="movementTypeFilter">
+              <option value="">Todos</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencias</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </label>
+          <label>Turno
+            <select id="movementShiftFilter">
+              <option value="">Todos</option>
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+          </label>
+          <label>Estado
+            <select id="movementStateFilter">
+              <option value="">Todos</option>
+              <option value="ACTIVE">Activos</option>
+              <option value="DELETED">Borrados</option>
+            </select>
+          </label>
+        </form>
+        <div class="movement-toolbar">
+          <button id="selectVisibleMovements" class="small" type="button">Seleccionar visibles</button>
+          <button id="clearMovementSelection" class="small" type="button">Limpiar</button>
+          <button id="editMovementBtn" class="small primary" type="button">Editar</button>
+          <button id="deleteMovementBtn" class="small danger" type="button">Borrar</button>
+        </div>
+      </section>
+      <section id="movementSummary" class="metrics-cards movement-summary"></section>
+      <section class="report-box movements-list-box">
+        <div id="movementsList" class="movements-list"></div>
+      </section>
+      <div id="movementEditModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="movementEditForm" class="modal-card movement-edit-card" autocomplete="off">
+          <button id="closeMovementEditModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Editar movimiento</h2>
+          <input id="movementEditId" type="hidden">
+          <label>Monto<input id="movementEditAmount" inputmode="decimal"></label>
+          <label>Tipo
+            <select id="movementEditType">
+              <option value="SALE">SALE</option>
+              <option value="WITHDRAWAL">WITHDRAWAL</option>
+            </select>
+          </label>
+          <label>Medio
+            <select id="movementEditPayment">
+              <option>Efectivo</option>
+              <option>Transferencia</option>
+              <option>Otro</option>
+            </select>
+          </label>
+          <label>Fecha de trabajo<input id="movementEditBusinessDate" type="date"></label>
+          <label>Turno
+            <select id="movementEditShift">
+              <option value="AM">AM</option>
+              <option value="PM">PM</option>
+            </select>
+          </label>
+          <label>Estado
+            <select id="movementEditDeleted">
+              <option value="false">Activo</option>
+              <option value="true">Borrado</option>
+            </select>
+          </label>
+          <label>Motivo / nota<textarea id="movementEditReason" placeholder="Requerido para borrar o modificar"></textarea></label>
+          <button class="big primary" type="submit">Guardar cambios</button>
+        </form>
+      </div>
+      <div id="movementDeleteModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="movementDeleteForm" class="modal-card movement-edit-card" autocomplete="off">
+          <button id="closeMovementDeleteModal" class="modal-close" type="button" aria-label="Cerrar">×</button>
+          <h2>Borrar movimientos</h2>
+          <p id="movementDeleteSummary" class="modal-note"></p>
+          <label>Motivo obligatorio
+            <textarea id="movementDeleteReason" placeholder="Ej: error de carga, duplicado, correccion administrativa"></textarea>
+          </label>
+          <button class="big danger" type="submit">Borrar y marcar para revision</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="tabBalance" class="tab-page hidden balance-page">
+      <div class="section-title">
+        <div>
+          <p>Administracion mensual</p>
+          <h1>Balance</h1>
+        </div>
+        <form class="filter balance-month-filter"><label>Mes<input id="monthPicker" type="month"></label></form>
+      </div>
+      <section id="monthlySummary" class="balance-equation"></section>
+      <section id="monthlyReport" class="metrics-cards balance-report"></section>
+      <section class="balance-workspace">
+        <section class="report-box balance-form-box">
+          <h2>Cargar gasto</h2>
+          <form id="monthlyForm" class="balance-form" autocomplete="off">
+            <input id="monthlyType" type="hidden" value="EXPENSE">
+            <input id="monthlyProductionId" type="hidden">
+            <label>Fecha<input id="monthlyDate" type="date"></label>
+            <label>Monto<input id="monthlyAmount" inputmode="decimal" placeholder="Monto"></label>
+            <label>Razon
+              <input id="monthlyCategory" list="monthlyReasonOptions" placeholder="Proveedor, sueldo, emergencia">
+              <datalist id="monthlyReasonOptions"></datalist>
+            </label>
+            <label>Descripcion<input id="monthlyDescription" placeholder="Detalle opcional"></label>
+            <label>Metodo
+              <select id="monthlyPayment"><option>Efectivo</option><option>Transferencia</option><option>Otro</option></select>
+            </label>
+            <label>Foto factura/remito/ticket<input id="monthlyPhoto" type="file" accept="image/*"></label>
+            <label class="balance-toggle"><input id="monthlyRecurring" type="checkbox"> Gasto fijo recurrente</label>
+            <label id="monthlyWeekdayWrap" class="hidden">Dia de la semana
+              <select id="monthlyWeekday">
+                <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miercoles</option><option value="4">Jueves</option><option value="5">Viernes</option><option value="6">Sabado</option><option value="0">Domingo</option>
+              </select>
+            </label>
+            <button class="big danger">Guardar gasto</button>
           </form>
-        </div>
-        <div class="report-box">
-          <h2>Ingresos y gastos grandes</h2>
-          <div id="monthlyEntries" class="mini-list"></div>
-        </div>
+        </section>
+        <section class="report-box balance-calendar-box">
+          <h2>Calendario mensual</h2>
+          <div id="balanceCalendar" class="balance-calendar"></div>
+        </section>
+      </section>
+      <section class="report-box">
+        <h2>Gastos y cierres del mes</h2>
+        <div id="monthlyEntries" class="balance-entry-list"></div>
       </section>
     </section>
 
     <section id="tabProduccion" class="tab-page hidden">
-      <h1>Produccion</h1>
+      <div class="section-title">
+        <div>
+          <p>Stock diario</p>
+          <h1>Produccion</h1>
+        </div>
+      </div>
       <section class="cash-grid monthly-grid">
         <div class="panel sale">
-          <h1>CARGA</h1>
+          <h1>INGRESO</h1>
           <form id="productionForm">
-            <input id="productionDate" type="date">
-            <input id="productionName" placeholder="Producto">
-            <select id="productionUnit"><option>kg</option><option>unidad</option><option>docena</option></select>
-            <input id="productionEntered" placeholder="Entrado / producido">
-            <input id="productionLeft" placeholder="Sobro">
-            <button class="big success">AGREGAR RENGLON</button>
+            <label>Fecha<input id="productionDate" type="date"></label>
+            <label>Producto<select id="productionProduct"></select></label>
+            <label>Cantidad ingresada<input id="productionEntered" placeholder="Ej: 90"></label>
+            <input id="productionUnit" type="hidden">
+            <input id="productionName" type="hidden">
+            <button class="big success">Agregar stock</button>
           </form>
         </div>
         <div class="report-box">
           <form class="filter"><label>Fecha</label><input id="productionFilterDate" type="date"></form>
-          <h2>Resumen</h2>
+          <h2>Stock del dia</h2>
           <div id="productionList" class="mini-list"></div>
         </div>
       </section>
     </section>
 
-    <section id="tabActividad" class="tab-page hidden">
-      <h1>Actividad</h1>
-      <section class="report-box"><div id="auditList" class="table-scroll"></div></section>
+    <section id="tabActividad" class="tab-page hidden activity-page">
+      <div class="section-title">
+        <div>
+          <p>Inspeccion dev</p>
+          <h1>Actividad</h1>
+        </div>
+        <span class="soft-pill">Solo developer</span>
+      </div>
+      <section id="activitySummary" class="metrics-cards activity-summary"></section>
+      <section class="report-box activity-box">
+        <div class="activity-head">
+          <div>
+            <h2>Registro de cambios</h2>
+            <p>Ventas, cierres, gastos, produccion, usuarios, retiros, ediciones y borrados.</p>
+          </div>
+          <span class="activity-hint">Incidentes raros se marcan en color</span>
+        </div>
+        <div id="auditList" class="activity-list"></div>
+      </section>
     </section>
 
     <section id="tabUsuarios" class="tab-page hidden">
@@ -380,6 +579,15 @@
 
     <section id="tabDev" class="tab-page hidden">
       <h1>Dev</h1>
+      <section class="report-box">
+        <h2>Mercado Pago / Supabase</h2>
+        <form id="integrationForm" class="integration-form" autocomplete="off">
+          <input id="supabaseUrl" placeholder="Supabase project URL">
+          <input id="supabaseAnonKey" placeholder="Supabase anon key">
+          <button class="primary" type="submit">Guardar integracion</button>
+        </form>
+        <div class="msg warn">No guardar tokens secretos en esta app. El Access Token de Mercado Pago va solo en Supabase Edge Functions.</div>
+      </section>
       <section class="report-box">
         <button id="exportBtn" class="primary">Exportar JSON</button>
         <div id="exportBox" class="export-box hidden"></div>

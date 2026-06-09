@@ -23,3 +23,20 @@ Usuarios iniciales:
 - Cierres, metricas, movimientos, actividad, usuarios y herramientas dev.
 - Nuevas secciones Mensual y Produccion.
 - Modo opcional de canasta de productos.
+
+## Mercado Pago automatico
+
+La app incluye una integracion opcional con Supabase Edge Functions para crear pagos de Mercado Pago y sincronizar el estado automaticamente.
+
+1. Crear un proyecto gratuito en Supabase.
+2. Ejecutar `supabase/schema.sql` en el SQL editor.
+3. Deployar las funciones en `supabase/functions`.
+4. Configurar secrets de Supabase:
+   - `MERCADO_PAGO_ACCESS_TOKEN`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `MP_WEBHOOK_URL` opcional, normalmente `https://TU-PROYECTO.supabase.co/functions/v1/mp-webhook`
+5. En la app, entrar como `admin` o `dev`, ir a `Dev`, y guardar:
+   - Supabase project URL
+   - Supabase anon key
+
+No guardar el Access Token de Mercado Pago en el navegador.
