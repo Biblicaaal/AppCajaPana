@@ -7,6 +7,10 @@ set "APP_PROFILE=%CD%\_perfil_caja"
 
 if not exist "%APP_PROFILE%" mkdir "%APP_PROFILE%"
 
+if exist "%CD%\tools\update-app.ps1" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\tools\update-app.ps1" -Auto -Quiet
+)
+
 if exist "%CD%\Browser\chrome.exe" (
   start "" "%CD%\Browser\chrome.exe" --app="%APP_URL%" --user-data-dir="%APP_PROFILE%" --disable-extensions --disable-background-networking --disable-sync
   exit /b

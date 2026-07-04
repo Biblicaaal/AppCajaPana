@@ -3,7 +3,7 @@
 
   var DB_NAME = "bakery_caja_static_v1";
   var DB_VERSION = 1;
-  var APP_VERSION = "2026.07.04.1";
+  var APP_VERSION = "2026.07.04.2";
   var APP_REPO = "Biblicaaal/AppCajaPana";
   var APP_BRANCH = "main";
   var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/" + APP_REPO + "/" + APP_BRANCH + "/update.json";
@@ -141,7 +141,7 @@
     if ($("localVersionLabel")) $("localVersionLabel").textContent = APP_VERSION;
     if (!info) {
       if ($("updateStatusLabel")) $("updateStatusLabel").textContent = "Sin revisar";
-      if ($("updateDetailText")) $("updateDetailText").textContent = "La app revisa GitHub al iniciar. Para instalar, ejecutar Update-AppCajaPana.bat desde la carpeta del programa.";
+      if ($("updateDetailText")) $("updateDetailText").textContent = "Abrir con AppCajaPana.vbs o Abrir-AppCajaPana.bat para instalar updates automaticamente antes de entrar.";
       return;
     }
     if ($("updateStatusLabel")) $("updateStatusLabel").textContent = info.available ? "Update disponible" : (info.error ? "Error de conexion" : "Al dia");
@@ -195,7 +195,7 @@
   function openUpdateModal(info) {
     info = info || JSON.parse(localStorage.getItem("bakeryLastUpdateCheck") || "null");
     if (!info || !info.available || !$("updateModal")) return;
-    $("updateModalDetail").textContent = (info.message || "Hay una version nueva disponible.") + " Cerrar la app y ejecutar Update-AppCajaPana.bat para instalarla.";
+    $("updateModalDetail").textContent = (info.message || "Hay una version nueva disponible.") + " Cerrar y volver a abrir con AppCajaPana.vbs para instalarla automaticamente.";
     $("updateModal").classList.remove("hidden");
   }
   function closeUpdateModal() {
@@ -217,12 +217,12 @@
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
         toast("Comando de updater copiado");
-      }).catch(function () {
-        toast("Ejecutar Update-AppCajaPana.bat desde la carpeta");
+    }).catch(function () {
+        toast("Abrir AppCajaPana.vbs para actualizar automaticamente");
       });
       return;
     }
-    toast("Ejecutar Update-AppCajaPana.bat desde la carpeta");
+    toast("Abrir AppCajaPana.vbs para actualizar automaticamente");
   }
   function defaultDevUiSettings() {
     return { density: "normal", theme: "green", motion: "on", performance: "normal", saleWidth: 520, shelfHeight: 180 };

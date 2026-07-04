@@ -16,6 +16,8 @@ La forma mas liviana de usar la app en una PC vieja es copiar la carpeta `AppCaj
 
 Ese launcher abre `Abrir-AppCajaPana.bat` sin mostrar consola, busca Chrome, Edge, Firefox o un navegador portable en `Browser\chrome.exe`, y usa un perfil local en `_perfil_caja` para que los datos de la caja queden separados del navegador personal.
 
+Antes de abrir la app, el launcher revisa `update.json` en GitHub. Si encuentra una version mas nueva, descarga el ZIP, crea un backup en `_backups`, reemplaza los archivos de la app y despues abre la caja. Si no hay internet o GitHub falla, abre la version local igual.
+
 Para dejar un icono en el escritorio:
 
 `Crear-Acceso-Directo.bat`
@@ -41,7 +43,9 @@ Usuarios iniciales sin contrasena:
 
 ## Updates
 
-La app estatica puede detectar updates en GitHub al iniciar. Para instalar una version nueva en una terminal, cerrar la app y ejecutar:
+La app portable instala updates automaticamente cuando se abre con `AppCajaPana.vbs` o `Abrir-AppCajaPana.bat`.
+
+Para forzar una instalacion manual en una terminal, cerrar la app y ejecutar:
 
 `Update-AppCajaPana.bat`
 
