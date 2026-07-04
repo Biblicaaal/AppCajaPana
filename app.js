@@ -3,7 +3,7 @@
 
   var DB_NAME = "bakery_caja_static_v1";
   var DB_VERSION = 1;
-  var APP_VERSION = "2026.06.09.2";
+  var APP_VERSION = "2026.07.04.1";
   var APP_REPO = "Biblicaaal/AppCajaPana";
   var APP_BRANCH = "main";
   var UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/" + APP_REPO + "/" + APP_BRANCH + "/update.json";
@@ -15,6 +15,8 @@
   var currentSession = null;
   var currentTab = "Caja";
   var isSubmittingSale = false;
+  var isLoggingIn = false;
+  var isGeneratingTestData = false;
   var saleMode = "quick";
   var basket = [];
   var calcItems = [];
@@ -36,6 +38,11 @@
   var expandedMovements = {};
   var movementDragSelect = null;
   var lastMovementSelectIndex = -1;
+  var movementFilteredRows = [];
+  var movementItemsByBasket = {};
+  var movementRenderCount = 0;
+  var movementRenderTimer = null;
+  var MOVEMENT_BATCH_SIZE = 80;
   var monthlyPhotoData = "";
   var dateSyncTimer = null;
   var selectedBalanceDay = "";
@@ -63,6 +70,12 @@
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function money(n) {
     return "$ " + Math.round(Number(n || 0)).toLocaleString("es-AR", { maximumFractionDigits: 0 });
+  }
+  function updateAppHeight() {
+    var h = window.visualViewport && window.visualViewport.height ? window.visualViewport.height : window.innerHeight;
+    var w = window.visualViewport && window.visualViewport.width ? window.visualViewport.width : window.innerWidth;
+    document.documentElement.style.setProperty("--app-height", Math.max(420, Math.floor(h || 720)) + "px");
+    document.body.classList.toggle("small-laptop", Number(w || 0) <= 1400 && Number(h || 0) <= 820);
   }
   function parseMoney(v) {
     v = String(v || "").replace("$", "").replace(/\s/g, "");
@@ -212,7 +225,7 @@
     toast("Ejecutar Update-AppCajaPana.bat desde la carpeta");
   }
   function defaultDevUiSettings() {
-    return { density: "normal", theme: "green", motion: "on", saleWidth: 520, shelfHeight: 180 };
+    return { density: "normal", theme: "green", motion: "on", performance: "normal", saleWidth: 520, shelfHeight: 180 };
   }
   function devUiSettings() {
     var defaults = defaultDevUiSettings();
@@ -231,15 +244,19 @@
   }
   function applyDevUiSettings(settings) {
     settings = settings || devUiSettings();
-    document.body.classList.remove("ui-compact", "ui-roomy", "theme-green", "theme-warm", "theme-amber", "reduce-motion");
+    document.body.classList.remove("ui-compact", "ui-roomy", "theme-green", "theme-warm", "theme-amber", "reduce-motion", "perf-legacy");
     document.body.classList.add("theme-" + (settings.theme || "green"));
     if (settings.density === "compact") document.body.classList.add("ui-compact");
     if (settings.density === "roomy") document.body.classList.add("ui-roomy");
-    if (settings.motion === "reduced") document.body.classList.add("reduce-motion");
+    if (settings.motion === "reduced" || settings.performance === "legacy") document.body.classList.add("reduce-motion");
+    if (settings.performance === "legacy") document.body.classList.add("perf-legacy");
     document.documentElement.style.setProperty("--sale-width", Number(settings.saleWidth || 520) + "px");
     document.documentElement.style.setProperty("--product-shelf-height", Number(settings.shelfHeight || 180) + "px");
     var layout = $("cashierLayout");
     if (layout) layout.style.setProperty("--sale-width", Number(settings.saleWidth || 520) + "px");
+  }
+  function isLegacyPerformance() {
+    return devUiSettings().performance === "legacy";
   }
   function updateDevUiOutputs() {
     if ($("devSaleWidthValue")) $("devSaleWidthValue").textContent = ($("devSaleWidth").value || devUiSettings().saleWidth) + " px";
@@ -251,6 +268,7 @@
     if ($("devDensity")) $("devDensity").value = s.density;
     if ($("devTheme")) $("devTheme").value = s.theme;
     if ($("devMotion")) $("devMotion").value = s.motion;
+    if ($("devPerformance")) $("devPerformance").value = s.performance || "normal";
     if ($("devSaleWidth")) $("devSaleWidth").value = s.saleWidth;
     if ($("devShelfHeight")) $("devShelfHeight").value = s.shelfHeight;
     updateDevUiOutputs();
@@ -260,6 +278,7 @@
       density: $("devDensity") ? $("devDensity").value : devUiSettings().density,
       theme: $("devTheme") ? $("devTheme").value : devUiSettings().theme,
       motion: $("devMotion") ? $("devMotion").value : devUiSettings().motion,
+      performance: $("devPerformance") ? $("devPerformance").value : devUiSettings().performance,
       saleWidth: $("devSaleWidth") ? Number($("devSaleWidth").value) : devUiSettings().saleWidth,
       shelfHeight: $("devShelfHeight") ? Number($("devShelfHeight").value) : devUiSettings().shelfHeight
     };
@@ -365,6 +384,14 @@
     });
   }
   function add(store, record) { return tx(store, "readwrite", function (os) { os.put(record); return record; }); }
+  function addMany(store, records) {
+    records = records || [];
+    if (!records.length) return Promise.resolve([]);
+    return tx(store, "readwrite", function (os) {
+      records.forEach(function (record) { os.put(record); });
+      return records;
+    });
+  }
   function del(store, id) { return tx(store, "readwrite", function (os) { os.delete(id); return id; }); }
   function clearStore(store) { return tx(store, "readwrite", function (os) { os.clear(); return true; }); }
   function all(store) {
@@ -389,17 +416,17 @@
       var tasks = [];
       if (!users.length) {
         [
-          ["admin", "Administrador", "admin", "2711"],
-          ["dev", "Desarrollo", "dev", "hipopotomonstrosesquipedaliofobia"],
-          ["turno_manana", "Turno Manana", "employee", "1234"],
-          ["turno_tarde", "Turno Tarde", "employee", "1234"]
+          ["admin", "Administrador", "admin"],
+          ["dev", "Desarrollo", "dev"],
+          ["turno_manana", "Turno Manana", "employee"],
+          ["turno_tarde", "Turno Tarde", "employee"]
         ].forEach(function (u) {
-          tasks.push(add("users", { id: uid(), username: u[0], displayName: u[1], role: u[2], password: u[3], active: true, createdAt: nowIso() }));
+          tasks.push(add("users", { id: uid(), username: u[0], displayName: u[1], role: u[2], password: "", active: true, createdAt: nowIso() }));
         });
       } else {
         users.forEach(function (u) {
-          if (u.username === "dev" && u.password !== "hipopotomonstrosesquipedaliofobia") {
-            u.password = "hipopotomonstrosesquipedaliofobia";
+          if (["admin", "dev", "turno_manana", "turno_tarde"].indexOf(u.username) >= 0 && u.password) {
+            u.password = "";
             tasks.push(add("users", u));
           }
         });
@@ -419,12 +446,28 @@
   }
 
   function login(e) {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
+    if (isLoggingIn) return;
     var username = $("loginUser").value.trim();
     var pass = $("loginPass").value;
+    setLoginStatus("");
+    if (!username) { setLoginStatus("Seleccione usuario", "warn"); return; }
+    isLoggingIn = true;
+    setLoginStatus("Ingresando...", "ok");
+    var loginTimeout = setTimeout(function () {
+      if (isLoggingIn) {
+        isLoggingIn = false;
+        setLoginStatus("El inicio tardo demasiado. Intente de nuevo.", "error");
+      }
+    }, 7000);
     all("users").then(function (users) {
-      var user = users.filter(function (u) { return u.username === username && u.password === pass && u.active; })[0];
-      if (!user) { toast("Usuario o clave incorrectos"); return; }
+      var user = users.filter(function (u) { return u.username === username && String(u.password || "") === pass && u.active; })[0];
+      if (!user) {
+        clearTimeout(loginTimeout);
+        isLoggingIn = false;
+        setLoginStatus("Usuario o clave incorrectos", "error");
+        return;
+      }
       currentUser = user;
       currentSession = {
         id: uid(), userId: user.id, username: user.username, displayName: user.displayName,
@@ -434,11 +477,42 @@
       add("sessions", currentSession).then(function () {
         sessionStorage.setItem("bakerySession", JSON.stringify({ user: currentUser, session: currentSession }));
         return audit("LOGIN", currentSession.shiftType + " caja inicial " + money(currentSession.openingCash));
-      }).then(showApp);
+      }).then(function () {
+        clearTimeout(loginTimeout);
+        showApp();
+      });
+    }).catch(function (err) {
+      clearTimeout(loginTimeout);
+      isLoggingIn = false;
+      setLoginStatus("No se pudo iniciar sesion: " + (err && err.message ? err.message : "error local"), "error");
     });
   }
+  function setLoginStatus(message, kind) {
+    var node = $("loginStatus");
+    if (!node) {
+      if (message) toast(message);
+      return;
+    }
+    node.textContent = message || "";
+    node.className = "login-status " + (kind || "");
+    if (message && kind !== "ok") toast(message);
+  }
+  function attachLoginHandlers() {
+    var form = $("loginForm");
+    var btn = $("loginSubmitBtn");
+    if (form) form.onsubmit = login;
+    if (btn) {
+      btn.onclick = login;
+      btn.addEventListener("click", login, false);
+    }
+  }
+  window.forceLogin = function (e) {
+    login(e || { preventDefault: function () {} });
+  };
 
   function showApp() {
+    isLoggingIn = false;
+    setLoginStatus("");
     $("loginView").classList.add("hidden");
     $("appView").classList.remove("hidden");
     $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
@@ -843,7 +917,7 @@
   function startMpSync() {
     clearInterval(mpSyncTimer);
     syncMercadoPagoStatuses();
-    mpSyncTimer = setInterval(syncMercadoPagoStatuses, 8000);
+    mpSyncTimer = setInterval(syncMercadoPagoStatuses, isLegacyPerformance() ? 30000 : 8000);
   }
   function syncMercadoPagoStatuses() {
     var s = integrationSettings();
@@ -1479,13 +1553,13 @@
       return audit("CLOSURE_CONTEXT_OPENED", currentSession.businessDate + " " + currentSession.shiftType);
     }).then(function () {
       switchTab("Cierres");
-      setTimeout(function () { $("closureForm").scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+      setTimeout(function () { $("closureForm").scrollIntoView({ behavior: isLegacyPerformance() ? "auto" : "smooth", block: "center" }); }, 80);
     });
   }
   function openMissingClosureDay(date) {
     expandedMissingClosures[date] = true;
     switchTab("Cierres");
-    setTimeout(function () { $("missedClosuresList").scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+    setTimeout(function () { $("missedClosuresList").scrollIntoView({ behavior: isLegacyPerformance() ? "auto" : "smooth", block: "center" }); }, 80);
   }
   function saveClosure(e) {
     e.preventDefault();
@@ -1612,13 +1686,13 @@
       day.onclick = function () {
         selectedBalanceDay = selectedBalanceDay === day.dataset.balanceDay ? "" : day.dataset.balanceDay;
         renderMonthly();
-        setTimeout(function () { $("monthlyEntries").scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+        setTimeout(function () { $("monthlyEntries").scrollIntoView({ behavior: isLegacyPerformance() ? "auto" : "smooth", block: "center" }); }, 80);
       };
       day.oncontextmenu = function (e) {
         e.preventDefault();
         selectedBalanceDay = "";
         renderMonthly();
-        setTimeout(function () { $("monthlyEntries").scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+        setTimeout(function () { $("monthlyEntries").scrollIntoView({ behavior: isLegacyPerformance() ? "auto" : "smooth", block: "center" }); }, 80);
       };
     });
     document.querySelectorAll("[data-balance-open-closure]").forEach(function (btn) {
@@ -1792,7 +1866,7 @@
       $("monthlyCategory").value = group.grouped ? "Juanjo" : "Produccion";
       $("monthlyDescription").value = group.grouped ? "Pago grupo Juanjo del " + item.date : "Pago stock: " + item.productName + " (" + item.enteredAmount + " " + item.unitType + ")";
       $("monthlyAmount").focus();
-      setTimeout(function () { $("monthlyForm").scrollIntoView({ behavior: "smooth", block: "center" }); }, 80);
+      setTimeout(function () { $("monthlyForm").scrollIntoView({ behavior: isLegacyPerformance() ? "auto" : "smooth", block: "center" }); }, 80);
     });
   }
   function productionPayGroup(item, product) {
@@ -1886,6 +1960,14 @@
       drawProductRevenueChart(productStats.rows);
     });
   }
+  function clearMetricCanvases() {
+    ["salesChart", "salesCountChart", "paymentMixChart", "productRevenueChart"].forEach(function (id) {
+      var canvas = $(id);
+      if (!canvas) return;
+      var ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width || 1, canvas.height || 1);
+    });
+  }
   function metricLine(row) {
     return "<div><span>" + row[0] + "</span><b>" + row[1] + "</b></div>";
   }
@@ -1932,76 +2014,106 @@
     return { rows: rows, totalItems: Math.round(totalItems * 100) / 100 };
   }
   function renderMovements() {
+    clearTimeout(movementRenderTimer);
     Promise.all([all("transactions"), all("basketItems")]).then(function (data) {
       var rows = data[0];
       var basketItems = data[1];
-      var itemsByBasket = {};
+      movementItemsByBasket = {};
       basketItems.forEach(function (it) {
-        if (!itemsByBasket[it.basketId]) itemsByBasket[it.basketId] = [];
-        itemsByBasket[it.basketId].push(it);
+        if (!movementItemsByBasket[it.basketId]) movementItemsByBasket[it.basketId] = [];
+        movementItemsByBasket[it.basketId].push(it);
       });
       rows.sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); });
       var filtered = filterMovements(rows);
+      movementFilteredRows = filtered;
+      movementRenderCount = Math.min(MOVEMENT_BATCH_SIZE, filtered.length);
       visibleMovementIds = filtered.map(function (r) { return r.id; });
       Object.keys(selectedMovements).forEach(function (id) {
         if (visibleMovementIds.indexOf(id) < 0) delete selectedMovements[id];
       });
       renderMovementSummary(filtered);
       $("movementSelectionPill").textContent = Object.keys(selectedMovements).length + " seleccionados";
-      $("movementsList").innerHTML = filtered.length ? filtered.map(function (r, i) {
-        return movementRowHtml(r, i, itemsByBasket[r.basketId] || []);
-      }).join("") : empty("Sin movimientos para estos filtros");
-      document.querySelectorAll("[data-movement-select]").forEach(function (box) {
-        var handledDragStart = false;
-        box.onclick = function (e) {
-          if (handledDragStart) {
-            handledDragStart = false;
-            e.preventDefault();
-            return;
-          }
-          e.preventDefault();
-          var idx = Number(box.dataset.movementIndex);
-          if (e.shiftKey && lastMovementSelectIndex >= 0) {
-            selectMovementRange(lastMovementSelectIndex, idx, true);
-            return;
-          }
-          setMovementSelected(box.dataset.movementSelect, !selectedMovements[box.dataset.movementSelect]);
-          lastMovementSelectIndex = idx;
-          renderMovements();
-        };
-        box.onchange = function (e) {
-          if (movementDragSelect) return;
-          setMovementSelected(box.dataset.movementSelect, box.checked);
-          renderMovements();
-        };
-        box.onpointerdown = function (e) {
-          if (e.shiftKey && lastMovementSelectIndex >= 0) {
-            return;
-          }
-          if (e.button !== 0) return;
-          handledDragStart = true;
-          e.preventDefault();
-          movementDragSelect = { checked: !selectedMovements[box.dataset.movementSelect] };
-          setMovementSelected(box.dataset.movementSelect, movementDragSelect.checked);
-          box.checked = movementDragSelect.checked;
-          lastMovementSelectIndex = Number(box.dataset.movementIndex);
-          $("movementSelectionPill").textContent = Object.keys(selectedMovements).length + " seleccionados";
-        };
-        box.onpointerenter = function () {
-          if (!movementDragSelect) return;
-          setMovementSelected(box.dataset.movementSelect, movementDragSelect.checked);
-          box.checked = movementDragSelect.checked;
-          $("movementSelectionPill").textContent = Object.keys(selectedMovements).length + " seleccionados";
-        };
-      });
-      document.querySelectorAll("[data-movement-expand]").forEach(function (btn) {
-        btn.onclick = function () {
-          var id = btn.dataset.movementExpand;
-          expandedMovements[id] = !expandedMovements[id];
-          renderMovements();
-        };
-      });
+      renderMovementRows();
     });
+  }
+  function scheduleRenderMovements() {
+    clearTimeout(movementRenderTimer);
+    movementRenderTimer = setTimeout(renderMovements, 160);
+  }
+  function renderMovementRows() {
+    var list = $("movementsList");
+    if (!list) return;
+    var scrollTop = list.scrollTop || 0;
+    if (!movementFilteredRows.length) {
+      list.innerHTML = empty("Sin movimientos para estos filtros");
+      return;
+    }
+    var visible = movementFilteredRows.slice(0, movementRenderCount);
+    list.innerHTML = visible.map(function (r, i) {
+      return movementRowHtml(r, i, movementItemsByBasket[r.basketId] || []);
+    }).join("") + movementLoadMoreHtml();
+    list.scrollTop = scrollTop;
+    bindMovementRowEvents();
+  }
+  function movementLoadMoreHtml() {
+    if (movementRenderCount >= movementFilteredRows.length) return "";
+    return "<button id='movementLoadMore' class='movement-load-more' type='button'>Cargar mas (" + movementRenderCount + " / " + movementFilteredRows.length + ")</button>";
+  }
+  function loadMoreMovements() {
+    if (movementRenderCount >= movementFilteredRows.length) return;
+    movementRenderCount = Math.min(movementRenderCount + MOVEMENT_BATCH_SIZE, movementFilteredRows.length);
+    renderMovementRows();
+  }
+  function bindMovementRowEvents() {
+    document.querySelectorAll("[data-movement-select]").forEach(function (box) {
+      var handledDragStart = false;
+      box.onclick = function (e) {
+        if (handledDragStart) {
+          handledDragStart = false;
+          e.preventDefault();
+          return;
+        }
+        e.preventDefault();
+        var idx = Number(box.dataset.movementIndex);
+        if (e.shiftKey && lastMovementSelectIndex >= 0) {
+          selectMovementRange(lastMovementSelectIndex, idx, true);
+          return;
+        }
+        setMovementSelected(box.dataset.movementSelect, !selectedMovements[box.dataset.movementSelect]);
+        lastMovementSelectIndex = idx;
+        renderMovementRows();
+      };
+      box.onchange = function () {
+        if (movementDragSelect) return;
+        setMovementSelected(box.dataset.movementSelect, box.checked);
+        renderMovementRows();
+      };
+      box.onpointerdown = function (e) {
+        if (e.shiftKey && lastMovementSelectIndex >= 0) return;
+        if (e.button !== 0) return;
+        handledDragStart = true;
+        e.preventDefault();
+        movementDragSelect = { checked: !selectedMovements[box.dataset.movementSelect] };
+        setMovementSelected(box.dataset.movementSelect, movementDragSelect.checked);
+        box.checked = movementDragSelect.checked;
+        lastMovementSelectIndex = Number(box.dataset.movementIndex);
+        $("movementSelectionPill").textContent = Object.keys(selectedMovements).length + " seleccionados";
+      };
+      box.onpointerenter = function () {
+        if (!movementDragSelect) return;
+        setMovementSelected(box.dataset.movementSelect, movementDragSelect.checked);
+        box.checked = movementDragSelect.checked;
+        $("movementSelectionPill").textContent = Object.keys(selectedMovements).length + " seleccionados";
+      };
+    });
+    document.querySelectorAll("[data-movement-expand]").forEach(function (btn) {
+      btn.onclick = function () {
+        var id = btn.dataset.movementExpand;
+        expandedMovements[id] = !expandedMovements[id];
+        renderMovementRows();
+      };
+    });
+    if ($("movementLoadMore")) $("movementLoadMore").onclick = loadMoreMovements;
   }
   function setMovementSelected(id, checked) {
     if (checked) selectedMovements[id] = true;
@@ -2014,7 +2126,7 @@
       if (visibleMovementIds[i]) setMovementSelected(visibleMovementIds[i], checked);
     }
     lastMovementSelectIndex = to;
-    renderMovements();
+    renderMovementRows();
   }
   function filterMovements(rows) {
     var from = $("movementDateFrom").value;
@@ -2089,12 +2201,12 @@
     ]);
   }
   function selectVisibleMovements() {
-    visibleMovementIds.forEach(function (id) { selectedMovements[id] = true; });
-    renderMovements();
+    visibleMovementIds.slice(0, movementRenderCount).forEach(function (id) { selectedMovements[id] = true; });
+    renderMovementRows();
   }
   function clearMovementSelection() {
     selectedMovements = {};
-    renderMovements();
+    renderMovementRows();
   }
   function openMovementEdit() {
     var ids = Object.keys(selectedMovements);
@@ -2393,7 +2505,7 @@
     if (!isAdmin()) return;
     var username = $("newUsername").value.trim();
     var password = $("newPassword").value.trim();
-    if (!username || !password) { toast("Usuario y clave son obligatorios"); return; }
+    if (!username) { toast("Usuario obligatorio"); return; }
     add("users", {
       id: uid(), username: username, displayName: $("newDisplayName").value.trim() || username,
       role: $("newRole").value, password: password, active: true, createdAt: nowIso()
@@ -2428,6 +2540,10 @@
   }
   function generateTestData() {
     if (!isDev()) return;
+    if (isGeneratingTestData) { toast("Ya se estan generando datos"); return; }
+    isGeneratingTestData = true;
+    var started = Date.now();
+    if ($("generateTestDataBtn")) $("generateTestDataBtn").disabled = true;
     var months = Math.max(1, Math.min(6, Number($("testDataMonths").value || 6)));
     var days = months * 30;
     toast("Generando datos de prueba...");
@@ -2436,9 +2552,21 @@
       var products = data[1].filter(function (p) { return p.active !== false; });
       var turnoAM = users.filter(function (u) { return u.username === "turno_manana"; })[0] || currentUser;
       var turnoPM = users.filter(function (u) { return u.username === "turno_tarde"; })[0] || currentUser;
-      if (!products.length) return seed().then(generateTestData);
+      if (!products.length) {
+        isGeneratingTestData = false;
+        if ($("generateTestDataBtn")) $("generateTestDataBtn").disabled = false;
+        return seed().then(generateTestData);
+      }
       var todayDate = today();
-      var tasks = [];
+      var batches = {
+        transactions: [],
+        baskets: [],
+        basketItems: [],
+        closures: [],
+        productionItems: [],
+        monthlyEntries: [],
+        auditLog: []
+      };
       for (var offset = days - 1; offset >= 0; offset--) {
         var date = addDaysTo(todayDate, -offset);
         var weekday = new Date(date + "T00:00:00").getDay();
@@ -2475,59 +2603,71 @@
             if (method === "Efectivo") shiftCash += amount;
             else shiftTransfer += amount;
             var transferStatus = method === "Transferencia" ? (Math.random() > .12 ? "RECEIVED" : (Math.random() > .5 ? "PENDING" : "REVIEW")) : "";
-            tasks.push(add("transactions", {
+            batches.transactions.push({
               id: transactionId, type: "SALE", amount: amount, paymentMethod: method, businessDate: date,
               shiftType: shift, userId: user && user.id, sessionId: "test-" + date + "-" + shift,
               createdAt: created, deleted: false, saleMode: isTicket ? "PRODUCT_BASKET" : "FAST",
               basketId: basketId, transferStatus: transferStatus, paidAmount: isTicket ? amount + [0, 500, 1000, 2000][rand(0, 3)] : 0,
               changeAmount: 0, itemCount: itemCount
-            }));
+            });
             if (isTicket) {
-              tasks.push(add("baskets", { id: basketId, createdAt: created, userId: user && user.id, total: amount, paymentMethod: method, transactionId: transactionId }));
+              batches.baskets.push({ id: basketId, createdAt: created, userId: user && user.id, total: amount, paymentMethod: method, transactionId: transactionId });
               items.forEach(function (it) {
-                tasks.push(add("basketItems", { id: uid(), basketId: basketId, productId: it.product.id, productName: it.product.name, quantity: it.qty, unitPrice: Number(it.product.price || 0), subtotal: it.subtotal }));
+                batches.basketItems.push({ id: uid(), basketId: basketId, productId: it.product.id, productName: it.product.name, quantity: it.qty, unitPrice: Number(it.product.price || 0), subtotal: it.subtotal });
               });
             }
           }
           if (Math.random() > .35) {
             var withdrawal = [2000, 5000, 10000, 15000, 20000][rand(0, 4)];
             shiftWithdrawals += withdrawal;
-            tasks.push(add("transactions", {
+            batches.transactions.push({
               id: uid(), type: "WITHDRAWAL", amount: withdrawal, paymentMethod: "Efectivo", businessDate: date,
               shiftType: shift, userId: user && user.id, sessionId: "test-" + date + "-" + shift,
               createdAt: isoAt(date, shift === "AM" ? 12 : 18, rand(0, 59)), deleted: false, withdrawnBy: "Encargado test"
-            }));
+            });
           }
-          tasks.push(add("closures", {
+          batches.closures.push({
             id: uid(), businessDate: date, shiftType: shift, closureKind: "COMPLETE",
             totalSales: shiftCash + shiftTransfer, expectedCash: shiftCash - shiftWithdrawals, expectedTransfer: shiftTransfer,
             countedCash: shiftCash - shiftWithdrawals + [-500, 0, 0, 0, 500][rand(0, 4)],
             countedTransfer: shiftTransfer, differenceCash: 0, differenceTransfer: 0,
             notes: "Cierre test", createdBy: user && user.id, createdAt: isoAt(date, shift === "AM" ? 14 : 21, 0)
-          }));
+          });
         });
         if (weekday !== 0) {
           products.slice(0, Math.min(products.length, rand(4, 8))).forEach(function (p) {
-            tasks.push(add("productionItems", {
+            batches.productionItems.push({
               id: uid(), date: date, productId: p.id, productName: p.name, unitType: p.unitType || "unidad",
               enteredAmount: p.unitType === "kg" ? rand(8, 95) : rand(12, 160), category: p.category || "",
               createdBy: currentUser && currentUser.id, createdAt: isoAt(date, 6, rand(20, 50))
-            }));
+            });
           });
         }
         if (weekday === 1 || Math.random() > .88) {
-          tasks.push(add("monthlyEntries", {
+          batches.monthlyEntries.push({
             id: uid(), type: "EXPENSE", date: date, amount: [8000, 15000, 28000, 45000, 70000][rand(0, 4)],
             category: sample(monthlyCategories), description: "Gasto test", paymentMethod: Math.random() > .5 ? "Efectivo" : "Transferencia",
             recurring: false, weekday: weekday, photoData: "", createdBy: currentUser && currentUser.id, createdAt: isoAt(date, 16, rand(0, 59))
-          }));
+          });
         }
       }
-      tasks.push(audit("TEST_DATA_GENERATED", months + " mes(es) de datos de prueba", "warning"));
-      return Promise.all(tasks);
+      batches.auditLog.push({
+        id: uid(), createdAt: nowIso(), userId: currentUser && currentUser.id,
+        username: currentUser && currentUser.username, action: "TEST_DATA_GENERATED",
+        detail: months + " mes(es) de datos de prueba", severity: "warning"
+      });
+      return Promise.all(Object.keys(batches).map(function (store) {
+        return addMany(store, batches[store]);
+      }));
     }).then(function () {
+      isGeneratingTestData = false;
+      if ($("generateTestDataBtn")) $("generateTestDataBtn").disabled = false;
       renderAll();
-      toast("Datos de prueba generados");
+      toast("Datos de prueba generados en " + ((Date.now() - started) / 1000).toFixed(1) + "s");
+    }).catch(function (err) {
+      isGeneratingTestData = false;
+      if ($("generateTestDataBtn")) $("generateTestDataBtn").disabled = false;
+      toast("No se pudieron generar datos: " + (err && err.message ? err.message : "error local"));
     });
   }
   function clearAllData() {
@@ -2684,7 +2824,7 @@
     document.body.classList.remove("resizing-shelf");
   }
   function bind() {
-    $("loginForm").onsubmit = login;
+    attachLoginHandlers();
     $("logoutBtn").onclick = logout;
     $("saleForm").onsubmit = saveQuickSale;
     $("withdrawForm").onsubmit = saveWithdrawal;
@@ -2702,6 +2842,7 @@
     if ($("devDensity")) $("devDensity").onchange = previewDevUiSettings;
     if ($("devTheme")) $("devTheme").onchange = previewDevUiSettings;
     if ($("devMotion")) $("devMotion").onchange = previewDevUiSettings;
+    if ($("devPerformance")) $("devPerformance").onchange = function () { previewDevUiSettings(); startMpSync(); };
     if ($("devSaleWidth")) $("devSaleWidth").oninput = previewDevUiSettings;
     if ($("devShelfHeight")) $("devShelfHeight").oninput = previewDevUiSettings;
     if ($("resetDevUiBtn")) $("resetDevUiBtn").onclick = resetDevUiSettings;
@@ -2729,8 +2870,12 @@
     $("monthPicker").onchange = renderMonthly;
     $("productionFilterDate").onchange = renderProduction;
     $("metricsRange").onchange = renderMetrics;
-    $("movementFilters").oninput = renderMovements;
+    $("movementFilters").oninput = scheduleRenderMovements;
     $("movementFilters").onchange = renderMovements;
+    $("movementsList").onscroll = function () {
+      var list = $("movementsList");
+      if (list.scrollTop + list.clientHeight >= list.scrollHeight - 180) loadMoreMovements();
+    };
     $("selectVisibleMovements").onclick = selectVisibleMovements;
     $("clearMovementSelection").onclick = clearMovementSelection;
     $("editMovementBtn").onclick = openMovementEdit;
@@ -2830,6 +2975,17 @@
         saveSale(parseMoney($("saleAmount").value), "FAST");
       }
     });
+    document.addEventListener("click", function (e) {
+      var target = e.target;
+      while (target && target !== document) {
+        if (target.id === "loginSubmitBtn") {
+          login(e);
+          if (e.stopPropagation) e.stopPropagation();
+          return;
+        }
+        target = target.parentNode;
+      }
+    }, true);
   }
   function fillSelects() {
     renderMonthlyReasonOptions();
@@ -2847,6 +3003,10 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    updateAppHeight();
+    window.addEventListener("resize", updateAppHeight);
+    if (window.visualViewport) window.visualViewport.addEventListener("resize", updateAppHeight);
+    attachLoginHandlers();
     if (!("indexedDB" in window)) {
       alert("Este navegador no soporta IndexedDB. Use Chrome, Edge o Firefox.");
       return;

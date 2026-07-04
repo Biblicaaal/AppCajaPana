@@ -8,12 +8,26 @@ Abrir `index.html` en el navegador. No requiere Python, Flask, Node ni servidor 
 
 La informacion se guarda localmente en el navegador con IndexedDB.
 
-Usuarios iniciales:
+## Uso portable en laptop
 
-- `admin` / `2711`
-- `dev` / `2711`
-- `turno_manana` / `1234`
-- `turno_tarde` / `1234`
+La forma mas liviana de usar la app en una PC vieja es copiar la carpeta `AppCajaPana` completa a la laptop y abrir:
+
+`AppCajaPana.vbs`
+
+Ese launcher abre `Abrir-AppCajaPana.bat` sin mostrar consola, busca Chrome, Edge, Firefox o un navegador portable en `Browser\chrome.exe`, y usa un perfil local en `_perfil_caja` para que los datos de la caja queden separados del navegador personal.
+
+Para dejar un icono en el escritorio:
+
+`Crear-Acceso-Directo.bat`
+
+Si la laptop solo tiene Internet Explorer, instalar un navegador compatible primero. Internet Explorer no es recomendado para IndexedDB ni para esta app.
+
+Usuarios iniciales sin contrasena:
+
+- `admin`
+- `dev`
+- `turno_manana`
+- `turno_tarde`
 
 ## Incluye
 
@@ -42,6 +56,18 @@ Para publicar una version nueva:
 1. Actualizar `APP_VERSION` en `app.js`.
 2. Actualizar `version` y `notes` en `update.json`.
 3. Subir los cambios a GitHub.
+
+## Modo laptop vieja
+
+En equipos muy lentos, entrar como `dev`, abrir `Dev > Apariencia y espacio`, y cambiar `Rendimiento` a `Windows 98 / rapido`.
+
+Ese modo usa una interfaz estilo Windows 98, elimina animaciones, sombras, blur y fondos animados, mantiene graficos simples, y baja la frecuencia de revisiones en segundo plano.
+
+Para hacer una prueba sintetica de carga similar a varios meses de uso:
+
+`node .\tools\stress-test-low-end.js`
+
+El test genera datos temporales en memoria y mide consultas pesadas de balance, movimientos y produccion. No modifica la base local de la app.
 
 ## Mercado Pago automatico
 

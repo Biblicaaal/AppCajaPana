@@ -16,14 +16,15 @@
     <img src="assets/logo.png" class="logo" alt="Logo">
     <h1>Inicio de sesion</h1>
     <label>Usuario</label>
-    <select id="loginUser" required autocomplete="off">
+    <select id="loginUser" autocomplete="off">
       <option value="admin">admin</option>
       <option value="dev">dev</option>
       <option value="turno_manana" selected>turno_manana</option>
       <option value="turno_tarde">turno_tarde</option>
     </select>
     <label>Contrasena</label>
-    <input id="loginPass" type="password" required autofocus autocomplete="new-password" inputmode="numeric" name="login_pin">
+    <input id="loginPass" type="password" autofocus autocomplete="new-password" inputmode="numeric" name="login_pin" placeholder="Vacio en primer ingreso">
+    <div id="loginStatus" class="login-status" aria-live="polite"></div>
     <div class="login-two">
       <div>
         <label>Fecha de trabajo</label>
@@ -39,7 +40,7 @@
     </div>
     <label>Cambio inicial en caja</label>
     <input id="openingCash" placeholder="Puede ser 0" value="0" autocomplete="off">
-    <button class="big primary" type="submit">INGRESAR</button>
+    <button id="loginSubmitBtn" class="big primary" type="button" onclick="if(window.forceLogin){window.forceLogin(event);} return false;">INGRESAR</button>
   </form>
 </section>
 
@@ -660,6 +661,12 @@
               <select id="devMotion">
                 <option value="on">Activadas</option>
                 <option value="reduced">Reducidas</option>
+              </select>
+            </label>
+            <label>Rendimiento
+              <select id="devPerformance">
+                <option value="normal">Normal</option>
+                <option value="legacy">Windows 98 / rapido</option>
               </select>
             </label>
             <label>Ancho Venta

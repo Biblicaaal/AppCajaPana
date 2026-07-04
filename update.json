@@ -1,6 +1,6 @@
 {
-  "version": "2026.06.09.2",
-  "notes": "Dev update checker, maintenance tools, expanded metrics, production scroll, and UI refinements.",
+  "version": "2026.07.04.1",
+  "notes": "Portable launcher, low-end Windows 7/98 mode, 1366x768 laptop layout, faster test data generation, lazy-loaded movements, and UI fixes.",
   "repoUrl": "https://github.com/Biblicaaal/AppCajaPana",
   "downloadUrl": "https://github.com/Biblicaaal/AppCajaPana/archive/refs/heads/main.zip"
 }
