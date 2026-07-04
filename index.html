@@ -623,6 +623,39 @@
           <div id="usersList" class="users-list"></div>
         </section>
       </section>
+      <div id="userEditModal" class="modal hidden" role="dialog" aria-modal="true">
+        <form id="userEditForm" class="modal-card user-edit-card" autocomplete="off">
+          <button id="closeUserEditModal" class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+          <h2>Editar usuario</h2>
+          <input id="editUserId" type="hidden">
+          <label>Usuario
+            <input id="editUsername" autocomplete="off">
+          </label>
+          <label>Nombre visible
+            <input id="editDisplayName" autocomplete="off">
+          </label>
+          <label>Rol
+            <select id="editRole">
+              <option value="employee">Empleado</option>
+              <option value="admin">Admin</option>
+              <option value="dev">Developer</option>
+            </select>
+          </label>
+          <label>Nueva clave
+            <input id="editPassword" placeholder="Dejar vacio para mantener actual" autocomplete="new-password">
+          </label>
+          <label>Estado
+            <select id="editActive">
+              <option value="true">Activo</option>
+              <option value="false">Inactivo</option>
+            </select>
+          </label>
+          <div class="modal-actions">
+            <button id="deleteUserBtn" class="danger" type="button">Borrar</button>
+            <button class="primary" type="submit">Guardar</button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <section id="tabDev" class="tab-page hidden dev-page">

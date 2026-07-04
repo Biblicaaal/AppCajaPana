@@ -2489,16 +2489,98 @@
       $("usersList").innerHTML = users.length ? users.map(function (u) {
         var roleLabel = u.role === "admin" ? "Admin" : u.role === "dev" ? "Developer" : "Empleado";
         var initials = (u.displayName || u.username || "?").trim().slice(0, 2).toUpperCase();
+        var locked = currentUser && currentUser.id === u.id;
         return "<article class='user-row " + (u.active ? "active" : "inactive") + "'>"
           + "<div class='user-avatar'>" + escapeHtml(initials) + "</div>"
           + "<div class='user-main'><strong>" + escapeHtml(u.displayName || u.username) + "</strong><span>@" + escapeHtml(u.username) + "</span></div>"
           + "<span class='user-role " + escapeHtml(u.role || "employee") + "'>" + roleLabel + "</span>"
           + "<span class='user-status " + (u.active ? "ok" : "off") + "'>" + (u.active ? "Activo" : "Inactivo") + "</span>"
           + "<small>" + escapeHtml((u.createdAt || "").slice(0, 10) || "Sin fecha") + "</small>"
+          + "<div class='user-actions'><button type='button' data-user-edit='" + u.id + "'>Editar</button>"
+          + "<button type='button' class='danger' data-user-delete='" + u.id + "'" + (locked ? " disabled" : "") + ">Borrar</button></div>"
           + "</article>";
       }).join("") : empty("No hay usuarios visibles.");
+      document.querySelectorAll("[data-user-edit]").forEach(function (btn) {
+        btn.onclick = function () { openUserEdit(btn.dataset.userEdit); };
+      });
+      document.querySelectorAll("[data-user-delete]").forEach(function (btn) {
+        btn.onclick = function () { deleteUser(btn.dataset.userDelete); };
+      });
     });
     renderActivity();
+  }
+  function openUserEdit(id) {
+    if (!isAdmin()) return;
+    all("users").then(function (users) {
+      var user = users.filter(function (u) { return u.id === id; })[0];
+      if (!user || user.username === "dev" || user.role === "dev") { toast("Usuario no editable desde esta lista"); return; }
+      $("editUserId").value = user.id;
+      $("editUsername").value = user.username || "";
+      $("editDisplayName").value = user.displayName || "";
+      $("editRole").value = user.role || "employee";
+      $("editPassword").value = "";
+      $("editActive").value = String(user.active !== false);
+      $("deleteUserBtn").disabled = currentUser && currentUser.id === user.id;
+      $("userEditModal").classList.remove("hidden");
+      $("editDisplayName").focus();
+    });
+  }
+  function closeUserEdit() {
+    if ($("userEditModal")) $("userEditModal").classList.add("hidden");
+  }
+  function saveUserEdit(e) {
+    if (e) e.preventDefault();
+    if (!isAdmin()) return;
+    var id = $("editUserId").value;
+    all("users").then(function (users) {
+      var user = users.filter(function (u) { return u.id === id; })[0];
+      if (!user || user.username === "dev" || user.role === "dev") { toast("Usuario no editable"); return; }
+      var username = $("editUsername").value.trim();
+      if (!username) { toast("Usuario obligatorio"); $("editUsername").focus(); return; }
+      var duplicate = users.filter(function (u) { return u.id !== id && u.username === username; })[0];
+      if (duplicate) { toast("Ya existe ese usuario"); $("editUsername").focus(); return; }
+      if (currentUser && currentUser.id === id && $("editActive").value !== "true") {
+        toast("No puede desactivar el usuario actual");
+        return;
+      }
+      user.username = username;
+      user.displayName = $("editDisplayName").value.trim() || username;
+      user.role = $("editRole").value;
+      if ($("editPassword").value !== "") user.password = $("editPassword").value;
+      user.active = $("editActive").value === "true";
+      user.updatedAt = nowIso();
+      add("users", user).then(function () {
+        return audit("USER_EDITED", username, "warning");
+      }).then(function () {
+        if (currentUser && currentUser.id === id) {
+          currentUser = user;
+          currentSession.username = user.username;
+          currentSession.displayName = user.displayName;
+          currentSession.role = user.role;
+          sessionStorage.setItem("bakerySession", JSON.stringify({ user: currentUser, session: currentSession }));
+          $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
+          buildTabs();
+        }
+        closeUserEdit();
+        renderAdmin();
+        toast("Usuario actualizado");
+      });
+    });
+  }
+  function deleteUser(id) {
+    if (!isAdmin()) return;
+    all("users").then(function (users) {
+      var user = users.filter(function (u) { return u.id === id; })[0];
+      if (!user || user.username === "dev" || user.role === "dev") { toast("Usuario no borrable desde esta lista"); return; }
+      if (currentUser && currentUser.id === id) { toast("No puede borrar el usuario actual"); return; }
+      if (!confirm("Borrar usuario " + (user.displayName || user.username) + "?")) return;
+      del("users", id).then(function () {
+        return audit("USER_DELETED", user.username, "critical");
+      }).then(function () {
+        renderAdmin();
+        toast("Usuario borrado");
+      });
+    });
   }
   function saveUser(e) {
     e.preventDefault();
@@ -2506,12 +2588,16 @@
     var username = $("newUsername").value.trim();
     var password = $("newPassword").value.trim();
     if (!username) { toast("Usuario obligatorio"); return; }
-    add("users", {
-      id: uid(), username: username, displayName: $("newDisplayName").value.trim() || username,
-      role: $("newRole").value, password: password, active: true, createdAt: nowIso()
-    }).then(function () { return audit("USER_CREATED", username); }).then(function () {
-      $("userForm").reset();
-      renderAdmin();
+    all("users").then(function (users) {
+      var duplicate = users.filter(function (u) { return u.username === username; })[0];
+      if (duplicate) { toast("Ya existe ese usuario"); return; }
+      return add("users", {
+        id: uid(), username: username, displayName: $("newDisplayName").value.trim() || username,
+        role: $("newRole").value, password: password, active: true, createdAt: nowIso()
+      }).then(function () { return audit("USER_CREATED", username); }).then(function () {
+        $("userForm").reset();
+        renderAdmin();
+      });
     });
   }
   function exportData() {
@@ -2836,6 +2922,9 @@
     $("productionForm").onsubmit = saveProduction;
     $("productionProduct").onchange = updateProductionProductFields;
     $("userForm").onsubmit = saveUser;
+    if ($("userEditForm")) $("userEditForm").onsubmit = saveUserEdit;
+    if ($("closeUserEditModal")) $("closeUserEditModal").onclick = closeUserEdit;
+    if ($("deleteUserBtn")) $("deleteUserBtn").onclick = function () { deleteUser($("editUserId").value); };
     $("exportBtn").onclick = exportData;
     $("integrationForm").onsubmit = saveIntegrationSettings;
     if ($("devUiForm")) $("devUiForm").onsubmit = saveDevUiSettings;
@@ -2945,6 +3034,7 @@
     $("reviewTransfersModal").onclick = function (e) { if (e.target === $("reviewTransfersModal")) closeReviewTransfersModal(); };
     $("movementEditModal").onclick = function (e) { if (e.target === $("movementEditModal")) closeMovementEdit(); };
     $("movementDeleteModal").onclick = function (e) { if (e.target === $("movementDeleteModal")) closeMovementDelete(); };
+    if ($("userEditModal")) $("userEditModal").onclick = function (e) { if (e.target === $("userEditModal")) closeUserEdit(); };
     if ($("clearDataModal")) $("clearDataModal").onclick = function (e) { if (e.target === $("clearDataModal")) closeClearDataModal(); };
     if ($("updateModal")) $("updateModal").onclick = function (e) { if (e.target === $("updateModal")) closeUpdateModal(); };
     document.querySelectorAll(".pay-btn").forEach(function (b) { b.onclick = function () { setPayment(b.dataset.payment); }; });

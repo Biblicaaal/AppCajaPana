@@ -716,7 +716,7 @@ tr.deleted{opacity:.55;background:#eee}
 }
 .user-row{
   display:grid;
-  grid-template-columns:46px minmax(0,1fr) max-content max-content max-content;
+  grid-template-columns:46px minmax(0,1fr) max-content max-content max-content max-content;
   gap:12px;
   align-items:center;
   padding:12px 14px;
@@ -783,6 +783,48 @@ tr.deleted{opacity:.55;background:#eee}
   font-weight:800;
   white-space:nowrap;
 }
+.user-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:6px;
+  min-width:max-content;
+}
+.user-actions button{
+  min-height:32px;
+  padding:6px 10px!important;
+  border-radius:10px!important;
+  font-size:12px!important;
+  font-weight:900;
+}
+.user-actions button.danger{
+  background:linear-gradient(180deg,#d95252,#a52f2f)!important;
+  color:white!important;
+  border-color:#8e2828!important;
+}
+.user-actions button:disabled{
+  opacity:.48;
+  cursor:not-allowed;
+  filter:saturate(.65);
+}
+.user-edit-card{
+  width:min(560px,100%);
+}
+.user-edit-card h2{
+  margin:0 0 14px;
+}
+.user-edit-card label{
+  display:block;
+  margin:0 0 10px;
+  color:var(--cash-muted);
+  font-size:12px;
+  font-weight:900;
+  text-transform:uppercase;
+}
+.user-edit-card input,
+.user-edit-card select{
+  width:100%;
+  margin-top:5px;
+}
 @media(max-width:1080px){
   .users-workspace{grid-template-columns:1fr}
   .users-list{max-height:none}
@@ -790,7 +832,7 @@ tr.deleted{opacity:.55;background:#eee}
 @media(max-width:760px){
   .users-summary{grid-template-columns:1fr!important}
   .user-row{grid-template-columns:46px 1fr}
-  .user-role,.user-status,.user-row small{grid-column:2;justify-self:start}
+  .user-role,.user-status,.user-row small,.user-actions{grid-column:2;justify-self:start}
 }
 .toast-container{position:fixed;right:18px;top:70px;z-index:9999;width:340px;margin:0!important}
 .toast,.toast-container .msg{box-shadow:0 6px 18px rgba(0,0,0,.22);border:1px solid rgba(0,0,0,.12);background:#111;color:white;padding:10px 12px;border-radius:8px}
