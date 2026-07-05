@@ -31,6 +31,8 @@
   var cropImageData = "";
   var mpSyncTimer = null;
   var closureSnapshot = null;
+  var closureDate = "";
+  var closureShift = "";
   var splitDrag = null;
   var shelfDrag = null;
   var selectedMovements = {};
@@ -444,6 +446,26 @@
       });
     });
   }
+  function renderLoginUsers(preferredUsername) {
+    var select = $("loginUser");
+    if (!select) return Promise.resolve();
+    var previous = preferredUsername || select.value || "turno_manana";
+    return all("users").then(function (users) {
+      users = users.filter(function (u) { return u.active !== false; });
+      users.sort(function (a, b) {
+        var order = { turno_manana: 0, turno_tarde: 1, admin: 2, dev: 3 };
+        var ao = order[a.username] == null ? 10 : order[a.username];
+        var bo = order[b.username] == null ? 10 : order[b.username];
+        return ao - bo || String(a.displayName || a.username).localeCompare(String(b.displayName || b.username));
+      });
+      select.innerHTML = users.map(function (u) {
+        return "<option value='" + escapeHtml(u.username) + "'>" + escapeHtml(u.displayName || u.username) + " (" + escapeHtml(u.username) + ")</option>";
+      }).join("");
+      var hasPrevious = users.some(function (u) { return u.username === previous; });
+      var hasMorning = users.some(function (u) { return u.username === "turno_manana"; });
+      select.value = hasPrevious ? previous : hasMorning ? "turno_manana" : (users[0] && users[0].username) || "";
+    });
+  }
 
   function login(e) {
     if (e && e.preventDefault) e.preventDefault();
@@ -518,6 +540,7 @@
     $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
     $("workDateInput").value = currentSession.businessDate;
     $("workShiftInput").value = currentSession.shiftType;
+    setClosureContext(today(), currentSession.shiftType || "AM", true);
     $("workShiftBar").style.display = "none";
     buildTabs();
     setDates();
@@ -897,8 +920,8 @@
       var rows = trs.filter(function (t) {
         return t.type === "SALE"
           && t.paymentMethod === "Transferencia"
-          && t.businessDate === currentSession.businessDate
-          && t.shiftType === currentSession.shiftType
+          && t.businessDate === activeClosureDate()
+          && (activeClosureShift() === "AMBOS" ? (inferredShift(t) === "AM" || inferredShift(t) === "PM") : inferredShift(t) === activeClosureShift())
           && (t.transferStatus || "PENDING") !== "RECEIVED";
       }).sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); });
       $("reviewTransfersList").innerHTML = rows.length ? rows.map(function (t) {
@@ -1399,27 +1422,121 @@
     if (shift === "AMBOS") return "06:30 - 21:00";
     return shift === "PM" ? "14:00 - 21:00" : "06:30 - 14:00";
   }
-  function closureTotals(trs) {
-    var shift = trs.filter(function (t) {
-      if (t.businessDate !== currentSession.businessDate) return false;
-      var tShift = inferredShift(t);
-      return currentSession.shiftType === "AMBOS" ? (tShift === "AM" || tShift === "PM") : tShift === currentSession.shiftType;
+  function activeClosureDate() {
+    return closureDate || today();
+  }
+  function activeClosureShift() {
+    return closureShift || (currentSession && currentSession.shiftType) || "AM";
+  }
+  function zeroClosureTotals() {
+    return {
+      shift: [], sales: [], cashSales: 0, receivedTransfers: 0, expectedTransfer: 0,
+      pendingTransfers: 0, reviewTransfers: 0, reviewTotal: 0, withdrawals: 0,
+      expectedCash: 0, totalSales: 0
+    };
+  }
+  function closureIsComplete(closures, date, shift) {
+    return closures.some(function (c) {
+      if ((c.closureKind || "COMPLETE") !== "COMPLETE" || c.businessDate !== date) return false;
+      if (c.shiftType === "AMBOS") return shift === "AM" || shift === "PM" || shift === "AMBOS";
+      if (shift === "AMBOS") return false;
+      return c.shiftType === shift;
     });
-    var sales = shift.filter(function (t) { return t.type === "SALE"; });
-    var cashSales = sum(shift, function (t) { return t.type === "SALE" && t.paymentMethod === "Efectivo"; });
-    var receivedTransfers = sum(shift, function (t) {
+  }
+  function closureOpeningCash(sessions, date, selectedShift) {
+    sessions = sessions || [];
+    var byShift = {};
+    sessions.forEach(function (s) {
+      if (s.businessDate !== date) return;
+      var sShift = s.shiftType || inferredShift(s);
+      if (selectedShift !== "AMBOS" && sShift !== selectedShift) return;
+      if (selectedShift === "AMBOS" && sShift !== "AM" && sShift !== "PM") return;
+      if (!byShift[sShift] || String(s.loginTime || s.createdAt || "").localeCompare(String(byShift[sShift].loginTime || byShift[sShift].createdAt || "")) > 0) {
+        byShift[sShift] = s;
+      }
+    });
+    var amount = Object.keys(byShift).reduce(function (total, shift) {
+      return total + Number(byShift[shift].openingCash || 0);
+    }, 0);
+    if (amount || !currentSession) return amount;
+    if (currentSession.businessDate === date && (selectedShift === currentSession.shiftType || selectedShift === "AMBOS")) return Number(currentSession.openingCash || 0);
+    return 0;
+  }
+  function pendingClosureMap(trs, closures) {
+    var map = {};
+    missingClosureRows(trs, closures).forEach(function (r) {
+      if (!map[r.date]) map[r.date] = [];
+      if (map[r.date].indexOf(r.shift) < 0) map[r.date].push(r.shift);
+    });
+    Object.keys(map).forEach(function (date) {
+      map[date].sort();
+    });
+    return map;
+  }
+  function setClosureContext(date, shift, resetForm) {
+    closureDate = date || today();
+    closureShift = shift || activeClosureShift();
+    if ($("closureDateSelect")) $("closureDateSelect").value = closureDate;
+    if ($("closureShiftSelect")) $("closureShiftSelect").value = closureShift;
+    if (resetForm && $("closureForm")) {
+      $("closureForm").reset();
+      $("countedCash").value = "0";
+      $("countedTransfer").value = "0";
+    }
+  }
+  function renderClosureSelectors(trs, closures) {
+    var dateSelect = $("closureDateSelect");
+    var shiftSelect = $("closureShiftSelect");
+    if (!dateSelect || !shiftSelect) return;
+    var pending = pendingClosureMap(trs, closures);
+    if (!closureDate) closureDate = today();
+    if (!closureShift) closureShift = (currentSession && currentSession.shiftType) || "AM";
+    var dates = Object.keys(pending);
+    if (dates.indexOf(today()) < 0) dates.unshift(today());
+    dates = dates.filter(function (date, index) { return dates.indexOf(date) === index; }).sort(function (a, b) {
+      if (a === today()) return -1;
+      if (b === today()) return 1;
+      return b.localeCompare(a);
+    });
+    if (dates.indexOf(closureDate) < 0) closureDate = today();
+    dateSelect.innerHTML = dates.map(function (date) {
+      var label = date === today() ? date + " (hoy)" : date;
+      var shifts = pending[date] && pending[date].length ? " - pendiente " + pending[date].join("/") : " - sin pendiente";
+      return "<option value='" + escapeHtml(date) + "'>" + escapeHtml(label + shifts) + "</option>";
+    }).join("");
+    dateSelect.value = closureDate;
+    var shiftsForDate = pending[closureDate] && pending[closureDate].length ? pending[closureDate].slice() : [closureShift || "AM"];
+    if (shiftsForDate.length > 1 && shiftsForDate.indexOf("AMBOS") < 0) shiftsForDate.push("AMBOS");
+    if (shiftsForDate.indexOf(closureShift) < 0) closureShift = shiftsForDate[0] || "AM";
+    shiftSelect.innerHTML = shiftsForDate.map(function (shift) {
+      return "<option value='" + shift + "'>" + (shift === "AMBOS" ? "AM + PM" : shift + " - " + (shift === "PM" ? "Tarde" : "Manana")) + "</option>";
+    }).join("");
+    shiftSelect.value = closureShift;
+  }
+  function closureTotals(trs, date, selectedShift, closures, sessions) {
+    date = date || activeClosureDate();
+    selectedShift = selectedShift || activeClosureShift();
+    if (closures && closureIsComplete(closures, date, selectedShift)) return zeroClosureTotals();
+    var rows = trs.filter(function (t) {
+      if (t.businessDate !== date) return false;
+      var tShift = inferredShift(t);
+      return selectedShift === "AMBOS" ? (tShift === "AM" || tShift === "PM") : tShift === selectedShift;
+    });
+    var sales = rows.filter(function (t) { return t.type === "SALE"; });
+    var cashSales = sum(rows, function (t) { return t.type === "SALE" && t.paymentMethod === "Efectivo"; });
+    var receivedTransfers = sum(rows, function (t) {
       return t.type === "SALE" && t.paymentMethod === "Transferencia" && t.transferStatus === "RECEIVED";
     });
-    var pendingTransfers = sum(shift, function (t) {
+    var pendingTransfers = sum(rows, function (t) {
       return t.type === "SALE" && t.paymentMethod === "Transferencia" && (t.transferStatus || "PENDING") === "PENDING";
     });
-    var reviewTransfers = sum(shift, function (t) {
+    var reviewTransfers = sum(rows, function (t) {
       return t.type === "SALE" && t.paymentMethod === "Transferencia" && t.transferStatus === "REVIEW";
     });
-    var withdrawals = sum(shift, function (t) { return t.type === "WITHDRAWAL"; });
-    var expectedCash = Number(currentSession.openingCash || 0) + cashSales - withdrawals;
+    var withdrawals = sum(rows, function (t) { return t.type === "WITHDRAWAL"; });
+    var expectedCash = closureOpeningCash(sessions, date, selectedShift) + cashSales - withdrawals;
     return {
-      shift: shift,
+      shift: rows,
       sales: sales,
       cashSales: cashSales,
       receivedTransfers: receivedTransfers,
@@ -1444,12 +1561,17 @@
     $("transferDiff").parentNode.classList.toggle("positive", transferDiff > 0);
   }
   function renderClosures() {
-    Promise.all([activeTransactions(), all("closures")]).then(function (data) {
+    Promise.all([activeTransactions(), all("closures"), all("sessions")]).then(function (data) {
       var trs = data[0];
       var allClosures = data[1];
-      var totals = closureTotals(trs);
+      var sessions = data[2];
+      renderClosureSelectors(trs, allClosures);
+      var selectedDate = activeClosureDate();
+      var selectedShift = activeClosureShift();
+      var alreadyComplete = closureIsComplete(allClosures, selectedDate, selectedShift);
+      var totals = closureTotals(trs, selectedDate, selectedShift, allClosures, sessions);
       closureSnapshot = totals;
-      if ($("closureShiftPill")) $("closureShiftPill").textContent = currentSession.businessDate + " | " + currentSession.shiftType;
+      if ($("closureShiftPill")) $("closureShiftPill").textContent = selectedDate + " | " + selectedShift;
       if ($("expectedCashCard")) $("expectedCashCard").textContent = money(totals.expectedCash);
       if ($("expectedTransferCard")) $("expectedTransferCard").textContent = money(totals.expectedTransfer);
       if ($("reviewTransferCard")) $("reviewTransferCard").textContent = money(totals.reviewTotal);
@@ -1459,7 +1581,9 @@
         ["Transferencias recibidas", money(totals.receivedTransfers)],
         ["Retiros", money(totals.withdrawals)]
       ]);
-      $("closureWarnings").innerHTML = totals.reviewTotal > 0
+      $("closureWarnings").innerHTML = alreadyComplete
+        ? "<div class='closure-ok'>Este cierre completo ya fue guardado. Seleccione otra fecha o turno pendiente.</div>"
+        : totals.reviewTotal > 0
         ? "<div class='closure-warning'>Hay " + money(totals.reviewTotal) + " en transferencias pendientes o para revisar antes de cerrar.</div>"
         : "<div class='closure-ok'>No hay pagos pendientes de revision en este turno.</div>";
       renderMissedClosures(trs, allClosures);
@@ -1543,15 +1667,8 @@
     });
   }
   function openClosureFor(date, shift) {
-    currentSession.businessDate = date || currentSession.businessDate;
-    currentSession.shiftType = shift || currentSession.shiftType;
-    sessionStorage.setItem("bakerySession", JSON.stringify({ user: currentUser, session: currentSession }));
-    $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
-    if ($("workDateInput")) $("workDateInput").value = currentSession.businessDate;
-    if ($("workShiftInput")) $("workShiftInput").value = currentSession.shiftType;
-    add("sessions", currentSession).then(function () {
-      return audit("CLOSURE_CONTEXT_OPENED", currentSession.businessDate + " " + currentSession.shiftType);
-    }).then(function () {
+    setClosureContext(date || today(), shift || activeClosureShift(), true);
+    audit("CLOSURE_CONTEXT_OPENED", activeClosureDate() + " " + activeClosureShift()).then(function () {
       switchTab("Cierres");
       setTimeout(function () { $("closureForm").scrollIntoView({ behavior: isLegacyPerformance() ? "auto" : "smooth", block: "center" }); }, 80);
     });
@@ -1564,8 +1681,17 @@
   function saveClosure(e) {
     e.preventDefault();
     var closureKind = e.submitter && e.submitter.value === "PARTIAL" ? "PARTIAL" : "COMPLETE";
-    activeTransactions().then(function (trs) {
-      var totals = closureTotals(trs);
+    var selectedDate = activeClosureDate();
+    var selectedShift = activeClosureShift();
+    Promise.all([activeTransactions(), all("closures"), all("sessions")]).then(function (data) {
+      var trs = data[0];
+      var closures = data[1];
+      var sessions = data[2];
+      if (closureKind === "COMPLETE" && closureIsComplete(closures, selectedDate, selectedShift)) {
+        toast("Ese cierre completo ya fue guardado");
+        return Promise.reject(new Error("Cierre duplicado"));
+      }
+      var totals = closureTotals(trs, selectedDate, selectedShift, closures, sessions);
       var countedCash = parseMoney($("countedCash").value);
       var countedTransfer = parseMoney($("countedTransfer").value);
       var differenceCash = countedCash - totals.expectedCash;
@@ -1577,7 +1703,7 @@
         return Promise.reject(new Error("Observaciones requeridas"));
       }
       return add("closures", {
-        id: uid(), businessDate: currentSession.businessDate, shiftType: currentSession.shiftType,
+        id: uid(), businessDate: selectedDate, shiftType: selectedShift,
         expectedCash: totals.expectedCash, countedCash: countedCash, differenceCash: differenceCash,
         expectedTransfer: totals.expectedTransfer, countedTransfer: countedTransfer, differenceTransfer: differenceTransfer,
         pendingTransfers: totals.pendingTransfers, reviewTransfers: totals.reviewTransfers,
@@ -1586,15 +1712,13 @@
       });
     }).then(function (saved) {
       if (!saved) return;
-      return audit(closureKind === "PARTIAL" ? "SHIFT_PARTIAL_CLOSED" : "SHIFT_CLOSED", currentSession.businessDate + " " + currentSession.shiftType);
+      return audit(closureKind === "PARTIAL" ? "SHIFT_PARTIAL_CLOSED" : "SHIFT_CLOSED", selectedDate + " " + selectedShift);
     }).then(function () {
-      $("closureForm").reset();
-      $("countedCash").value = "0";
-      $("countedTransfer").value = "0";
+      setClosureContext(today(), (currentSession && currentSession.shiftType) || "AM", true);
       renderAll();
       toast(closureKind === "PARTIAL" ? "Cierre parcial guardado" : "Cierre completo guardado");
     }).catch(function (err) {
-      if (err && err.message !== "Observaciones requeridas") toast("No se pudo guardar el cierre");
+      if (err && err.message !== "Observaciones requeridas" && err.message !== "Cierre duplicado") toast("No se pudo guardar el cierre");
     });
   }
 
@@ -2563,6 +2687,7 @@
         }
         closeUserEdit();
         renderAdmin();
+        renderLoginUsers(username);
         toast("Usuario actualizado");
       });
     });
@@ -2578,6 +2703,7 @@
         return audit("USER_DELETED", user.username, "critical");
       }).then(function () {
         renderAdmin();
+        renderLoginUsers();
         toast("Usuario borrado");
       });
     });
@@ -2597,6 +2723,7 @@
       }).then(function () { return audit("USER_CREATED", username); }).then(function () {
         $("userForm").reset();
         renderAdmin();
+        renderLoginUsers(username);
       });
     });
   }
@@ -2916,6 +3043,8 @@
     $("withdrawForm").onsubmit = saveWithdrawal;
     $("undoBtn").onclick = undoLastSale;
     $("closureForm").onsubmit = saveClosure;
+    if ($("closureDateSelect")) $("closureDateSelect").onchange = function () { setClosureContext($("closureDateSelect").value, "", true); renderClosures(); };
+    if ($("closureShiftSelect")) $("closureShiftSelect").onchange = function () { setClosureContext(activeClosureDate(), $("closureShiftSelect").value, true); renderClosures(); };
     $("countedCash").oninput = updateClosureDiffs;
     $("countedTransfer").oninput = updateClosureDiffs;
     $("monthlyForm").onsubmit = saveMonthly;
@@ -3108,6 +3237,8 @@
     setPayment("Efectivo");
     setSaleMode("quick");
     seed().then(function () {
+      return renderLoginUsers("turno_manana");
+    }).then(function () {
       restoreSession();
       if (updateSettings().autoCheck !== false) checkForUpdates(true);
       // PWA registration is intentionally left off during local preview so UI changes are never hidden by cache.

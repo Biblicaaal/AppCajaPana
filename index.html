@@ -315,6 +315,18 @@
         </div>
         <section class="report-box close-form-box">
           <h2>Nuevo cierre</h2>
+          <div class="closure-picker">
+            <label>Fecha pendiente
+              <select id="closureDateSelect"></select>
+            </label>
+            <label>Turno
+              <select id="closureShiftSelect">
+                <option value="AM">AM - Manana</option>
+                <option value="PM">PM - Tarde</option>
+                <option value="AMBOS">AM + PM</option>
+              </select>
+            </label>
+          </div>
           <form id="closureForm" class="close-form">
             <label>Efectivo contado
               <input id="countedCash" value="0" inputmode="decimal">
