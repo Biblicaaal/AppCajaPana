@@ -14,6 +14,7 @@
 <section id="loginView" class="login-body">
   <form id="loginForm" class="login-card" autocomplete="off" autocapitalize="off" spellcheck="false">
     <img src="assets/logo.png" class="logo" alt="Logo">
+    <div class="bakery-login-badge"><span></span>Panaderia local</div>
     <h1>Inicio de sesion</h1>
     <label>Usuario</label>
     <select id="loginUser" autocomplete="off">
@@ -23,7 +24,7 @@
       <option value="turno_tarde">turno_tarde</option>
     </select>
     <label>Contrasena</label>
-    <input id="loginPass" type="password" autofocus autocomplete="new-password" inputmode="numeric" name="login_pin" placeholder="Vacio en primer ingreso">
+    <input id="loginPass" type="password" autofocus autocomplete="new-password" inputmode="numeric" name="login_pin" placeholder="Clave obligatoria">
     <div id="loginStatus" class="login-status" aria-live="polite"></div>
     <div class="login-two">
       <div>
@@ -69,6 +70,7 @@
     <section id="tabCaja" class="tab-page">
       <details id="productShelf" class="product-shelf" open>
         <summary><span>Productos rapidos</span><b>⌄</b></summary>
+        <div id="productCategoryBar" class="product-category-bar" aria-label="Categorias de productos"></div>
         <div id="productGrid" class="product-grid product-strip"></div>
         <button id="shelfResizeHandle" class="shelf-resize-handle" type="button" aria-label="Ajustar altura de productos rapidos"></button>
       </details>
@@ -240,11 +242,16 @@
             </label>
           </section>
           <section id="cropEditor" class="crop-editor hidden">
-            <div id="cropPreview" class="crop-preview"></div>
+            <div class="crop-frame">
+              <div class="crop-badge">1:1</div>
+              <div id="cropPreview" class="crop-preview"></div>
+            </div>
             <div class="crop-controls">
+              <b>Recorte cuadrado para productos</b>
+              <small>La imagen se guarda exactamente como aparece aca.</small>
               <label>Zoom <input id="cropZoom" type="range" min="1" max="2.5" step="0.05" value="1"></label>
-              <label>Horizontal <input id="cropX" type="range" min="-100" max="100" step="1" value="0"></label>
-              <label>Vertical <input id="cropY" type="range" min="-100" max="100" step="1" value="0"></label>
+              <label>Posicion horizontal <input id="cropX" type="range" min="0" max="100" step="1" value="50"></label>
+              <label>Posicion vertical <input id="cropY" type="range" min="0" max="100" step="1" value="50"></label>
             </div>
           </section>
           <button class="big success" type="submit">Guardar producto</button>
@@ -552,15 +559,24 @@
         </div>
       </div>
       <section class="cash-grid monthly-grid">
-        <div class="panel sale">
-          <h1>INGRESO</h1>
+        <div class="panel sale production-form-panel">
+          <h1>STOCK</h1>
           <form id="productionForm">
             <label>Fecha<input id="productionDate" type="date"></label>
             <label>Producto<select id="productionProduct"></select></label>
-            <label>Cantidad ingresada<input id="productionEntered" placeholder="Ej: 90"></label>
+            <label>Operacion
+              <select id="productionAction">
+                <option value="add">Agregar stock</option>
+                <option value="remove">Quitar stock</option>
+              </select>
+            </label>
+            <label>Cantidad<input id="productionEntered" placeholder="Ej: 90"></label>
+            <label id="productionReasonWrap" class="hidden">Motivo obligatorio
+              <input id="productionReason" placeholder="Ej: cargado por error">
+            </label>
             <input id="productionUnit" type="hidden">
             <input id="productionName" type="hidden">
-            <button class="big success">Agregar stock</button>
+            <button id="productionSubmitBtn" class="big success">Agregar stock</button>
           </form>
         </div>
         <div class="report-box">
@@ -629,7 +645,7 @@
           <div class="panel-head">
             <div>
               <h2>Usuarios activos</h2>
-              <p>El usuario developer queda oculto de esta lista.</p>
+              <p>Admin y developer pueden editar usuarios, roles, estado y claves.</p>
             </div>
           </div>
           <div id="usersList" class="users-list"></div>
@@ -654,7 +670,7 @@
             </select>
           </label>
           <label>Nueva clave
-            <input id="editPassword" placeholder="Dejar vacio para mantener actual" autocomplete="new-password">
+            <input id="editPassword" type="password" placeholder="Dejar vacio para mantener actual" autocomplete="new-password">
           </label>
           <label>Estado
             <select id="editActive">
@@ -711,7 +727,7 @@
             <label>Rendimiento
               <select id="devPerformance">
                 <option value="normal">Normal</option>
-                <option value="legacy">Windows 98 / rapido</option>
+                <option value="legacy">Performance mode</option>
               </select>
             </label>
             <label>Ancho Venta
@@ -719,7 +735,7 @@
               <output id="devSaleWidthValue"></output>
             </label>
             <label>Alto Quick Products
-              <input id="devShelfHeight" type="range" min="120" max="320" step="10">
+              <input id="devShelfHeight" type="range" min="120" max="520" step="10">
               <output id="devShelfHeightValue"></output>
             </label>
             <div class="dev-actions">

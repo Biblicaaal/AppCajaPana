@@ -21,6 +21,7 @@
   var basket = [];
   var calcItems = [];
   var selectedProduct = null;
+  var activeProductCategory = localStorage.getItem("bakeryActiveProductCategory") || "Todos";
   var autoSaleTimer = null;
   var autoTicketTimer = null;
   var lastSaleAt = 0;
@@ -29,6 +30,7 @@
   var pendingUndoSale = null;
   var cropImage = null;
   var cropImageData = "";
+  var cropDrag = null;
   var mpSyncTimer = null;
   var closureSnapshot = null;
   var closureDate = "";
@@ -51,7 +53,6 @@
   var expandedMissingClosures = {};
   var draggedTab = "";
   var tabJustDragged = false;
-  var tabDividers = ["__divider_1", "__divider_2"];
   var quickButtons = [500, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 8000, 10000];
   var monthlyCategories = ["Proveedores", "Sueldos", "Alquiler", "Servicios", "Arreglos", "Equipamiento", "Insumos", "Otro"];
   var defaultProducts = [
@@ -235,7 +236,7 @@
       var saved = JSON.parse(localStorage.getItem("bakeryDevUiSettings") || "{}");
       Object.keys(defaults).forEach(function (k) { if (saved[k] === undefined || saved[k] === "") saved[k] = defaults[k]; });
       saved.saleWidth = Math.max(360, Math.min(760, Number(saved.saleWidth || defaults.saleWidth)));
-      saved.shelfHeight = Math.max(120, Math.min(320, Number(saved.shelfHeight || defaults.shelfHeight)));
+      saved.shelfHeight = Math.max(120, Math.min(520, Number(saved.shelfHeight || defaults.shelfHeight)));
       return saved;
     } catch (e) {
       return defaults;
@@ -425,13 +426,6 @@
         ].forEach(function (u) {
           tasks.push(add("users", { id: uid(), username: u[0], displayName: u[1], role: u[2], password: "", active: true, createdAt: nowIso() }));
         });
-      } else {
-        users.forEach(function (u) {
-          if (["admin", "dev", "turno_manana", "turno_tarde"].indexOf(u.username) >= 0 && u.password) {
-            u.password = "";
-            tasks.push(add("users", u));
-          }
-        });
       }
       return Promise.all(tasks);
     }).then(function () {
@@ -471,9 +465,10 @@
     if (e && e.preventDefault) e.preventDefault();
     if (isLoggingIn) return;
     var username = $("loginUser").value.trim();
-    var pass = $("loginPass").value;
+    var pass = $("loginPass").value.trim();
     setLoginStatus("");
     if (!username) { setLoginStatus("Seleccione usuario", "warn"); return; }
+    if (!pass) { setLoginStatus("Ingrese una clave", "warn"); $("loginPass").focus(); return; }
     isLoggingIn = true;
     setLoginStatus("Ingresando...", "ok");
     var loginTimeout = setTimeout(function () {
@@ -483,12 +478,17 @@
       }
     }, 7000);
     all("users").then(function (users) {
-      var user = users.filter(function (u) { return u.username === username && String(u.password || "") === pass && u.active; })[0];
-      if (!user) {
+      var user = users.filter(function (u) { return u.username === username && u.active; })[0];
+      if (!user || (String(user.password || "") && String(user.password || "") !== pass)) {
         clearTimeout(loginTimeout);
         isLoggingIn = false;
         setLoginStatus("Usuario o clave incorrectos", "error");
         return;
+      }
+      var firstPasswordSetup = !String(user.password || "");
+      if (firstPasswordSetup) {
+        user.password = pass;
+        user.updatedAt = nowIso();
       }
       currentUser = user;
       currentSession = {
@@ -496,9 +496,11 @@
         role: user.role, loginTime: nowIso(), openingCash: parseMoney($("openingCash").value),
         businessDate: $("loginDate").value || today(), shiftType: $("loginShift").value
       };
-      add("sessions", currentSession).then(function () {
+      (firstPasswordSetup ? add("users", user) : Promise.resolve(user)).then(function () {
+        return add("sessions", currentSession);
+      }).then(function () {
         sessionStorage.setItem("bakerySession", JSON.stringify({ user: currentUser, session: currentSession }));
-        return audit("LOGIN", currentSession.shiftType + " caja inicial " + money(currentSession.openingCash));
+        return audit(firstPasswordSetup ? "PASSWORD_INITIALIZED" : "LOGIN", currentSession.shiftType + " caja inicial " + money(currentSession.openingCash));
       }).then(function () {
         clearTimeout(loginTimeout);
         showApp();
@@ -537,7 +539,7 @@
     setLoginStatus("");
     $("loginView").classList.add("hidden");
     $("appView").classList.remove("hidden");
-    $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
+    $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b class='topbar-date'>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
     $("workDateInput").value = currentSession.businessDate;
     $("workShiftInput").value = currentSession.shiftType;
     setClosureContext(today(), currentSession.shiftType || "AM", true);
@@ -562,9 +564,8 @@
   }
   function isAdmin() { return currentUser && (currentUser.role === "admin" || currentUser.role === "dev"); }
   function isDev() { return currentUser && currentUser.role === "dev"; }
-  function isTabDivider(name) { return tabDividers.indexOf(name) >= 0; }
   function visibleTabs() {
-    var tabs = isAdmin() ? ["Caja", "Cierres", "Metricas", "Produccion", "__divider_1", "Movimientos", "Balance", "Usuarios", "__divider_2"] : ["Caja", "__divider_1", "Produccion"];
+    var tabs = isAdmin() ? ["Caja", "Cierres", "Metricas", "Produccion", "Movimientos", "Balance", "Usuarios"] : ["Caja", "Produccion"];
     if (isDev()) tabs = tabs.concat(["Actividad", "Dev"]);
     return orderedTabs(tabs);
   }
@@ -572,8 +573,7 @@
     try {
       var saved = JSON.parse(localStorage.getItem("bakeryTabOrder") || "[]");
       if (!Array.isArray(saved)) return [];
-      if (saved.indexOf("__divider_1") < 0) insertOrderAfter(saved, "__divider_1", "Produccion");
-      if (saved.indexOf("__divider_2") < 0) insertOrderAfter(saved, "__divider_2", "Balance");
+      saved = saved.filter(function (name) { return String(name).indexOf("__divider_") !== 0; });
       return saved;
     } catch (e) {
       return [];
@@ -604,19 +604,11 @@
     $("tabs").innerHTML = "";
     tabs.forEach(function (name) {
       var btn = document.createElement("button");
-      if (isTabDivider(name)) {
-        btn.type = "button";
-        btn.className = "tab-divider";
-        btn.title = isAdmin() ? "Separador arrastrable" : "";
-        btn.setAttribute("aria-label", "Separador de tabs");
-      } else {
-        btn.textContent = labels[name] || name;
-        btn.className = name === currentTab ? "active" : "";
-      }
+      btn.textContent = labels[name] || name;
+      btn.className = name === currentTab ? "active" : "";
       btn.dataset.tab = name;
       btn.draggable = isAdmin();
       btn.onclick = function () {
-        if (isTabDivider(name)) return;
         if (tabJustDragged) {
           tabJustDragged = false;
           return;
@@ -653,7 +645,7 @@
   }
   function reorderTabs(from, to) {
     var visible = Array.prototype.slice.call(document.querySelectorAll("#tabs [data-tab]")).map(function (b) { return b.dataset.tab; });
-    var allKnown = ["Caja", "Cierres", "Metricas", "Produccion", "__divider_1", "Movimientos", "Balance", "Actividad", "Usuarios", "__divider_2", "Dev"];
+    var allKnown = ["Caja", "Cierres", "Metricas", "Produccion", "Movimientos", "Balance", "Actividad", "Usuarios", "Dev"];
     var order = tabOrder().length ? tabOrder().filter(function (x) { return allKnown.indexOf(x) >= 0; }) : allKnown.slice();
     allKnown.forEach(function (x) { if (order.indexOf(x) < 0) order.push(x); });
     var scoped = visible.slice();
@@ -683,6 +675,7 @@
   function startDateSync() {
     clearInterval(dateSyncTimer);
     dateSyncTimer = setInterval(function () {
+      syncSessionDateIfChanged();
       var mk = monthKey(today());
       if ($("monthPicker") && currentTab === "Balance" && !$("monthPicker").value) $("monthPicker").value = mk;
       if ($("monthlyDate") && !$("monthlyDate").value) $("monthlyDate").value = today();
@@ -691,6 +684,18 @@
         renderMonthly();
       }
     }, 3600000);
+  }
+  function syncSessionDateIfChanged() {
+    if (!currentSession || !currentUser) return false;
+    var currentDate = today();
+    if (currentSession.businessDate === currentDate) return false;
+    currentSession.businessDate = currentDate;
+    sessionStorage.setItem("bakerySession", JSON.stringify({ user: currentUser, session: currentSession }));
+    if ($("sessionInfo")) $("sessionInfo").innerHTML = "Usuario: <b>" + currentUser.displayName + "</b> | Fecha: <b class='topbar-date'>" + currentSession.businessDate + "</b> | Turno: <b>" + currentSession.shiftType + "</b>";
+    if ($("workDateInput")) $("workDateInput").value = currentSession.businessDate;
+    setClosureContext(currentDate, currentSession.shiftType || "AM", true);
+    add("sessions", currentSession).then(function () { return audit("BUSINESS_DATE_AUTO_CHANGED", currentDate); });
+    return true;
   }
 
   function setPayment(method) {
@@ -866,11 +871,13 @@
   }
 
   function renderCaja() {
+    syncSessionDateIfChanged();
     if ($("quickButtons")) $("quickButtons").innerHTML = quickButtons.map(function (v) {
       return "<button type='button' data-sale='" + v + "'>" + money(v) + "</button>";
     }).join("");
     all("transactions").then(function (trs) {
-      var sales = trs.filter(function (t) { return t.type === "SALE" && !t.deleted; })
+      var activeDate = currentSession && currentSession.businessDate || today();
+      var sales = trs.filter(function (t) { return t.type === "SALE" && !t.deleted && t.businessDate === activeDate; })
         .sort(function (a, b) { return b.createdAt.localeCompare(a.createdAt); }).slice(0, 10);
       $("lastSales").innerHTML = sales.length ? sales.map(function (s) {
         var status = transferStatusHtml(s);
@@ -1079,24 +1086,84 @@
     }
     return "<span class='product-img'>" + productIcon(product && product.name) + "</span>";
   }
+  function productCategory(product) {
+    return String(product && product.category || "General").trim() || "General";
+  }
+  function productCategories(products) {
+    var seen = {};
+    products.forEach(function (p) { seen[productCategory(p)] = true; });
+    return Object.keys(seen).sort(function (a, b) { return a.localeCompare(b); });
+  }
+  function setProductCategory(category) {
+    activeProductCategory = category || "Todos";
+    localStorage.setItem("bakeryActiveProductCategory", activeProductCategory);
+    renderProducts();
+  }
+  function renderProductCategories(products) {
+    if (!$("productCategoryBar")) return;
+    var categories = productCategories(products);
+    if (activeProductCategory !== "Todos" && categories.indexOf(activeProductCategory) < 0) activeProductCategory = "Todos";
+    var items = ["Todos"].concat(categories);
+    $("productCategoryBar").innerHTML = items.map(function (cat) {
+      var count = cat === "Todos" ? products.length : products.filter(function (p) { return productCategory(p) === cat; }).length;
+      return "<button type='button' class='" + (activeProductCategory === cat ? "active" : "") + "' data-product-category='" + escapeHtml(cat) + "'><b>" + escapeHtml(cat) + "</b><small>" + count + "</small></button>";
+    }).join("");
+    document.querySelectorAll("[data-product-category]").forEach(function (btn) {
+      btn.onclick = function () { setProductCategory(btn.dataset.productCategory || "Todos"); };
+    });
+  }
   function renderProducts() {
     all("products").then(function (products) {
       products = products.filter(function (p) { return p.active; }).sort(function (a, b) {
         return Number(a.sortOrder || 0) - Number(b.sortOrder || 0) || String(a.name).localeCompare(String(b.name));
       });
-      $("productGrid").innerHTML = products.map(function (p) {
+      renderProductCategories(products);
+      var visibleProducts = activeProductCategory === "Todos" ? products : products.filter(function (p) {
+        return productCategory(p) === activeProductCategory;
+      });
+      $("productGrid").innerHTML = visibleProducts.map(function (p) {
         return "<button class='product-card' type='button' draggable='true' data-product='" + p.id + "'>" + productImage(p) + "<b>" + escapeHtml(p.name) + "</b><small>" + money(p.price) + " / " + escapeHtml(p.priceUnit || p.unitType) + "</small></button>";
-      }).join("") + (isAdmin() ? "<button class='product-card product-edit-card' id='openProductEditorBtn' type='button'><span class='product-img'>EDIT</span><b>Editar</b><small>Agregar, modificar o borrar</small></button>" : "");
+      }).join("") + (isAdmin() ? "<button class='product-card product-edit-card' id='openProductEditorBtn' type='button'><span class='product-img'>EDIT</span><b>Editar</b><small>Categorias y productos</small></button>" : "");
       document.querySelectorAll("[data-product]").forEach(function (btn) {
         btn.onclick = function () {
           if (btn.dataset.dragging === "1") { btn.dataset.dragging = "0"; return; }
-          var p = products.filter(function (x) { return x.id === btn.dataset.product; })[0];
+          var p = visibleProducts.filter(function (x) { return x.id === btn.dataset.product; })[0];
           openProductModal(p);
         };
+        btn.oncontextmenu = function (e) {
+          if (!isAdmin()) return;
+          e.preventDefault();
+          var p = visibleProducts.filter(function (x) { return x.id === btn.dataset.product; })[0];
+          if (p) openProductContextMenu(e, p);
+        };
       });
-      bindProductDrag(products);
+      bindProductDrag(visibleProducts);
       if ($("openProductEditorBtn")) $("openProductEditorBtn").onclick = openProductEditor;
     });
+  }
+  function openProductContextMenu(e, product) {
+    closeProductContextMenu();
+    var menu = document.createElement("div");
+    menu.id = "productContextMenu";
+    menu.className = "product-context-menu";
+    menu.innerHTML = "<button type='button' data-action='edit'>Editar</button><button type='button' class='danger' data-action='delete'>Borrar</button>";
+    document.body.appendChild(menu);
+    var x = Math.min(e.clientX || 0, window.innerWidth - 150);
+    var y = Math.min(e.clientY || 0, window.innerHeight - 92);
+    menu.style.left = Math.max(6, x) + "px";
+    menu.style.top = Math.max(6, y) + "px";
+    menu.querySelector("[data-action='edit']").onclick = function () {
+      closeProductContextMenu();
+      openProductForm(product);
+    };
+    menu.querySelector("[data-action='delete']").onclick = function () {
+      closeProductContextMenu();
+      deleteProduct(product);
+    };
+  }
+  function closeProductContextMenu() {
+    var menu = $("productContextMenu");
+    if (menu && menu.parentNode) menu.parentNode.removeChild(menu);
   }
   function bindProductDrag(products) {
     var draggedId = "";
@@ -1246,8 +1313,8 @@
     $("cropEditor").classList.add("hidden");
     $("cropPreview").innerHTML = "";
     $("cropZoom").value = "1";
-    $("cropX").value = "0";
-    $("cropY").value = "0";
+    $("cropX").value = "50";
+    $("cropY").value = "50";
     $("productFormTitle").textContent = "Nuevo producto";
   }
   function openProductForm(product) {
@@ -1273,7 +1340,7 @@
     all("products").then(function (products) {
       editorProducts = products.filter(function (p) { return p.active; });
       $("productEditorList").innerHTML = editorProducts.length ? editorProducts.map(function (p) {
-        return "<div class='editor-product-row'><div>" + productImage(p) + "</div><span><b>" + escapeHtml(p.name) + "</b><small>" + money(p.price) + " / " + escapeHtml(p.priceUnit || p.unitType) + " | vendido por " + escapeHtml(p.unitType) + "</small></span><button type='button' data-edit-product='" + p.id + "'>Editar</button><button class='danger' type='button' data-delete-product='" + p.id + "'>Borrar</button></div>";
+        return "<div class='editor-product-row'><div>" + productImage(p) + "</div><span><b>" + escapeHtml(p.name) + "</b><small><i>" + escapeHtml(productCategory(p)) + "</i> | " + money(p.price) + " / " + escapeHtml(p.priceUnit || p.unitType) + " | vendido por " + escapeHtml(p.unitType) + "</small></span><button type='button' data-edit-product='" + p.id + "'>Editar</button><button class='danger' type='button' data-delete-product='" + p.id + "'>Borrar</button></div>";
       }).join("") : empty("Sin productos");
       document.querySelectorAll("[data-edit-product]").forEach(function (btn) {
         btn.onclick = function () {
@@ -1285,15 +1352,19 @@
       document.querySelectorAll("[data-delete-product]").forEach(function (btn) {
         btn.onclick = function () {
           var p = editorProducts.filter(function (x) { return x.id === btn.dataset.deleteProduct; })[0];
-          if (!p || !confirm("Borrar " + p.name + "?")) return;
-          p.active = false;
-          add("products", p).then(function () {
-            renderProducts();
-            renderProductEditor();
-            toast("Producto borrado");
-          });
+          deleteProduct(p);
         };
       });
+    });
+  }
+  function deleteProduct(product) {
+    if (!product || !confirm("Borrar " + product.name + "?")) return;
+    product.active = false;
+    product.updatedAt = nowIso();
+    add("products", product).then(function () {
+      renderProducts();
+      renderProductEditor();
+      toast("Producto borrado");
     });
   }
   function saveProductEditor(e) {
@@ -1368,37 +1439,63 @@
     cropImageData = dataUrl;
     cropImage = new Image();
     cropImage.onload = function () {
+      $("cropZoom").value = "1";
+      $("cropX").value = "50";
+      $("cropY").value = "50";
       $("cropEditor").classList.remove("hidden");
       updateCropPreview();
     };
     cropImage.src = dataUrl;
   }
   function updateCropPreview() {
-    if (!cropImageData) return;
-    var zoom = Number($("cropZoom").value || 1);
-    var x = Number($("cropX").value || 0);
-    var y = Number($("cropY").value || 0);
-    $("cropPreview").innerHTML = "<img src='" + escapeHtml(cropImageData) + "' alt=''>";
-    var img = $("cropPreview").querySelector("img");
-    img.style.transform = "translate(" + x + "px," + y + "px) scale(" + zoom + ")";
+    if (!cropImage) return;
+    $("cropPreview").innerHTML = "<img src='" + escapeHtml(buildCroppedImage(360)) + "' alt=''><span>Arrastre para elegir el corte</span>";
   }
-  function buildCroppedImage() {
+  function buildCroppedImage(outputSize) {
     if (!cropImage) return editImageData;
     var canvas = document.createElement("canvas");
-    var size = 480;
+    var size = outputSize || 480;
     canvas.width = size;
     canvas.height = size;
     var ctx = canvas.getContext("2d");
     var zoom = Number($("cropZoom").value || 1);
-    var shiftX = Number($("cropX").value || 0) / 100;
-    var shiftY = Number($("cropY").value || 0) / 100;
+    var shiftX = Number($("cropX").value || 50) / 100;
+    var shiftY = Number($("cropY").value || 50) / 100;
     var base = Math.min(cropImage.naturalWidth, cropImage.naturalHeight) / zoom;
-    var sx = (cropImage.naturalWidth - base) / 2 + shiftX * (cropImage.naturalWidth - base) / 2;
-    var sy = (cropImage.naturalHeight - base) / 2 + shiftY * (cropImage.naturalHeight - base) / 2;
+    var sx = (cropImage.naturalWidth - base) * shiftX;
+    var sy = (cropImage.naturalHeight - base) * shiftY;
     sx = Math.max(0, Math.min(cropImage.naturalWidth - base, sx));
     sy = Math.max(0, Math.min(cropImage.naturalHeight - base, sy));
     ctx.drawImage(cropImage, sx, sy, base, base, 0, 0, size, size);
     return canvas.toDataURL("image/jpeg", 0.86);
+  }
+  function startCropDrag(e) {
+    if (!cropImage || !$("cropPreview")) return;
+    if (e && e.preventDefault) e.preventDefault();
+    var p = eventPoint(e);
+    cropDrag = {
+      startX: p.x,
+      startY: p.y,
+      valueX: Number($("cropX").value || 50),
+      valueY: Number($("cropY").value || 50),
+      width: Math.max(1, $("cropPreview").clientWidth || 240),
+      height: Math.max(1, $("cropPreview").clientHeight || 240)
+    };
+    document.body.classList.add("cropping-image");
+  }
+  function moveCropDrag(e) {
+    if (!cropDrag) return;
+    if (e && e.preventDefault) e.preventDefault();
+    var p = eventPoint(e);
+    var nextX = cropDrag.valueX - ((p.x - cropDrag.startX) / cropDrag.width) * 100;
+    var nextY = cropDrag.valueY - ((p.y - cropDrag.startY) / cropDrag.height) * 100;
+    $("cropX").value = String(Math.max(0, Math.min(100, Math.round(nextX))));
+    $("cropY").value = String(Math.max(0, Math.min(100, Math.round(nextY))));
+    updateCropPreview();
+  }
+  function stopCropDrag() {
+    cropDrag = null;
+    document.body.classList.remove("cropping-image");
   }
 
   function activeTransactions() {
@@ -1874,7 +1971,7 @@
       var productById = {};
       products.forEach(function (p) { productById[p.id] = p; });
       renderProductionProductOptions(products);
-      var items = data[1].filter(function (i) { return i.date === d; }).sort(function (a, b) { return a.productName.localeCompare(b.productName); });
+      var items = data[1].filter(function (i) { return i.date === d && !i.deleted; }).sort(function (a, b) { return a.productName.localeCompare(b.productName); });
       var transactions = data[2];
       var baskets = data[3];
       var basketItems = data[4];
@@ -1899,12 +1996,26 @@
   }
   function productionDisplayRows(items, productById, soldByProduct, expenses) {
     var juanjoItems = [];
+    var normalGroups = {};
     var rows = [];
     items.forEach(function (i) {
       var product = productById[i.productId] || {};
       var payGroup = productionPayGroup(i, product);
       if (payGroup.grouped) juanjoItems.push(i);
-      else rows.push(renderStockEntry(i, product, soldByProduct, expenses));
+      else {
+        var key = i.productId || i.productName;
+        if (!normalGroups[key]) normalGroups[key] = {
+          id: i.id, productId: i.productId, productName: i.productName, unitType: i.unitType,
+          date: i.date, enteredAmount: 0, entries: []
+        };
+        normalGroups[key].enteredAmount += Number(i.enteredAmount || 0);
+        normalGroups[key].entries.push(i);
+      }
+    });
+    Object.keys(normalGroups).sort(function (a, b) {
+      return normalGroups[a].productName.localeCompare(normalGroups[b].productName);
+    }).forEach(function (key) {
+      rows.push(renderStockEntry(normalGroups[key], productById[normalGroups[key].productId] || {}, soldByProduct, expenses));
     });
     if (juanjoItems.length) rows.unshift(renderJuanjoStockGroup(juanjoItems, productById, soldByProduct, expenses));
     return rows;
@@ -1912,8 +2023,12 @@
   function renderStockEntry(i, product, soldByProduct, expenses) {
     var sold = soldByProduct[i.productId] || soldByProduct[i.productName] || 0;
     var remaining = Math.max(0, Number(i.enteredAmount || 0) - sold);
+    var movements = (i.entries || [i]).map(function (entry) {
+      var amount = Number(entry.enteredAmount || 0);
+      return "<small class='" + (amount < 0 ? "stock-subtract" : "stock-add") + "'>" + (amount < 0 ? "Quita " : "Suma ") + Math.abs(amount) + " " + escapeHtml(entry.unitType || i.unitType || "") + (entry.reason ? " | " + escapeHtml(entry.reason) : "") + "</small>";
+    }).join("");
     return "<details class='stock-entry' open><summary><span><b>" + escapeHtml(i.productName) + "</b><small>" + i.date + " | " + escapeHtml(i.unitType || "") + "</small></span><strong>" + remaining + " " + escapeHtml(i.unitType || "") + "</strong></summary>"
-      + "<div class='stock-detail'><div><span>Ingresado</span><b>" + i.enteredAmount + "</b></div><div><span>Vendido ticket</span><b>" + sold + "</b></div><div><span>Restante</span><b>" + remaining + "</b></div>"
+      + "<div class='stock-detail'><div><span>Neto cargado</span><b>" + i.enteredAmount + "</b></div><div><span>Vendido ticket</span><b>" + sold + "</b></div><div><span>Restante</span><b>" + remaining + "</b></div><div class='stock-movements'><span>Movimientos</span>" + movements + "</div>"
       + "</div></details>";
   }
   function renderJuanjoStockGroup(items, productById, soldByProduct, expenses) {
@@ -1925,9 +2040,10 @@
       var key = i.productId || i.productName;
       if (!byProduct[key]) byProduct[key] = {
         id: i.id, productId: i.productId, productName: i.productName, unitType: i.unitType,
-        entered: 0, sold: 0
+        entered: 0, sold: 0, entries: []
       };
       byProduct[key].entered += Number(i.enteredAmount || 0);
+      byProduct[key].entries.push(i);
     });
     Object.keys(byProduct).forEach(function (key) {
       byProduct[key].sold = soldByProduct[byProduct[key].productId] || soldByProduct[byProduct[key].productName] || 0;
@@ -1937,7 +2053,7 @@
     }).map(function (key) {
       var row = byProduct[key];
       var remaining = Math.max(0, row.entered - row.sold);
-      return "<div class='stock-group-item'><span>" + escapeHtml(row.productName) + "</span><b>Ingreso " + row.entered + " " + escapeHtml(row.unitType || "") + "</b><b>Vend. " + row.sold + "</b><strong>Resta " + remaining + "</strong></div>";
+      return "<div class='stock-group-item'><span>" + escapeHtml(row.productName) + "</span><b>Neto " + row.entered + " " + escapeHtml(row.unitType || "") + "</b><b>Vend. " + row.sold + "</b><strong>Resta " + remaining + "</strong></div>";
     }).join("");
     return "<details class='stock-entry stock-grouped stock-juanjo-group' open><summary><span><b>Juanjo</b><small>" + date + " | " + items.length + " ingreso(s) agrupado(s)</small></span><strong>" + Object.keys(byProduct).length + " productos</strong></summary>"
       + "<div class='stock-detail stock-group-detail'>" + details
@@ -1957,18 +2073,37 @@
     $("productionName").value = opt.dataset.name || opt.textContent;
     $("productionUnit").value = opt.dataset.unit || "unidad";
   }
+  function updateProductionActionUi() {
+    var removing = $("productionAction") && $("productionAction").value === "remove";
+    if ($("productionReasonWrap")) $("productionReasonWrap").classList.toggle("hidden", !removing);
+    if ($("productionSubmitBtn")) {
+      $("productionSubmitBtn").textContent = removing ? "Quitar stock" : "Agregar stock";
+      $("productionSubmitBtn").className = removing ? "big danger" : "big success";
+    }
+  }
   function saveProduction(e) {
     e.preventDefault();
     var entered = parseMoney($("productionEntered").value);
     var productId = $("productionProduct").value;
     var name = $("productionName").value.trim();
     if (!productId || !name || entered <= 0) { toast("Complete producto y cantidad"); return; }
+    var removing = $("productionAction") && $("productionAction").value === "remove";
+    var reason = $("productionReason") ? $("productionReason").value.trim() : "";
+    if (removing && !reason) { toast("Motivo requerido para quitar stock"); return; }
     add("productionItems", {
       id: uid(), date: $("productionDate").value || today(), productId: productId, productName: name, unitType: $("productionUnit").value,
-      enteredAmount: entered, category: $("productionProduct").selectedOptions[0] && $("productionProduct").selectedOptions[0].dataset.category || "",
+      enteredAmount: removing ? -entered : entered, category: $("productionProduct").selectedOptions[0] && $("productionProduct").selectedOptions[0].dataset.category || "",
+      movementType: removing ? "REMOVE" : "ADD", reason: reason,
       createdBy: currentUser.id, createdAt: nowIso()
-    }).then(function () { return audit("PRODUCTION_ITEM_CREATED", name); }).then(function () {
-      $("productionEntered").value = "";
+    }).then(function () {
+      return removing
+        ? audit("PRODUCTION_STOCK_REMOVED_REVIEW_REQUIRED", name + " -" + entered + " " + $("productionUnit").value + " | Motivo: " + reason, "warning")
+        : audit("PRODUCTION_ITEM_CREATED", name);
+    }).then(function () {
+    $("productionEntered").value = "";
+      if ($("productionReason")) $("productionReason").value = "";
+      if ($("productionAction")) $("productionAction").value = "add";
+      updateProductionActionUi();
       $("productionFilterDate").value = $("productionDate").value;
       renderProduction();
     });
@@ -2023,7 +2158,7 @@
       var expenseTotal = sum(expenses, function () { return true; });
       var completeClosures = closures.filter(function (c) { return (c.closureKind || "COMPLETE") === "COMPLETE" && new Date(c.createdAt || c.businessDate) >= start; });
       var partialClosures = closures.filter(function (c) { return c.closureKind === "PARTIAL" && new Date(c.createdAt || c.businessDate) >= start; });
-      var productionScoped = production.filter(function (p) { return new Date(p.date || p.createdAt) >= start; });
+      var productionScoped = production.filter(function (p) { return !p.deleted && new Date(p.date || p.createdAt) >= start; });
       var ticketSales = sales.filter(function (t) { return t.saleMode === "PRODUCT_BASKET" || t.basketId; });
       var manualSales = sales.length - ticketSales.length;
       var avg = sales.length ? sum(sales, function () { return true; }) / sales.length : 0;
@@ -2418,9 +2553,72 @@
       toast("Movimientos borrados y marcados para revision");
     });
   }
+  function metricTooltip() {
+    var tip = $("metricChartTooltip");
+    if (!tip) {
+      tip = document.createElement("div");
+      tip.id = "metricChartTooltip";
+      tip.className = "metric-chart-tooltip hidden";
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+  function bindMetricCanvasHover(canvas) {
+    if (!canvas || canvas.dataset.metricHoverBound === "1") return;
+    canvas.dataset.metricHoverBound = "1";
+    canvas.onmousemove = function (e) {
+      var hit = metricCanvasHit(canvas, e);
+      if (!hit) { hideMetricTooltip(); return; }
+      showMetricTooltip(hit.label, e.clientX, e.clientY);
+    };
+    canvas.onmouseleave = hideMetricTooltip;
+  }
+  function showMetricTooltip(label, x, y) {
+    var tip = metricTooltip();
+    tip.innerHTML = label;
+    tip.classList.remove("hidden");
+    tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, x + 14) + "px";
+    tip.style.top = Math.min(window.innerHeight - tip.offsetHeight - 8, y + 14) + "px";
+  }
+  function hideMetricTooltip() {
+    var tip = $("metricChartTooltip");
+    if (tip) tip.classList.add("hidden");
+  }
+  function metricCanvasPoint(canvas, e) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / Math.max(1, rect.width)),
+      y: (e.clientY - rect.top) * (canvas.height / Math.max(1, rect.height))
+    };
+  }
+  function metricCanvasHit(canvas, e) {
+    var p = metricCanvasPoint(canvas, e);
+    var targets = canvas._metricTargets || [];
+    var best = null;
+    targets.forEach(function (t) {
+      var d = 999999;
+      if (t.type === "point") {
+        d = Math.sqrt(Math.pow(p.x - t.x, 2) + Math.pow(p.y - t.y, 2));
+        if (d > (t.r || 12)) return;
+      } else if (t.type === "rect") {
+        if (p.x < t.x || p.x > t.x + t.w || p.y < t.y || p.y > t.y + t.h) return;
+        d = Math.abs((t.x + t.w / 2) - p.x);
+      } else if (t.type === "slice") {
+        var angle = Math.atan2(p.y - t.cy, p.x - t.cx);
+        if (angle < -Math.PI / 2) angle += Math.PI * 2;
+        var dist = Math.sqrt(Math.pow(p.x - t.cx, 2) + Math.pow(p.y - t.cy, 2));
+        if (dist > t.r || angle < t.start || angle > t.end) return;
+        d = dist;
+      }
+      if (!best || d < best.d) best = { d: d, label: t.label };
+    });
+    return best;
+  }
   function drawChart(sales, days) {
     var canvas = $("salesChart");
     var ctx = canvas.getContext("2d");
+    bindMetricCanvasHover(canvas);
+    canvas._metricTargets = [];
     canvas.width = Math.max(640, canvas.parentNode.clientWidth - 40);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     var labels = [];
@@ -2458,6 +2656,7 @@
       if (!v) return;
       var x = 42 + i * ((canvas.width - 74) / Math.max(1, values.length - 1));
       var y = canvas.height - 34 - (v / max) * (canvas.height - 90);
+      canvas._metricTargets.push({ type: "point", x: x, y: y, r: 14, label: "<b>" + labels[i] + "</b><span>" + money(v) + "</span>" });
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -2480,6 +2679,8 @@
   function prepareCanvas(id) {
     var canvas = $(id);
     if (!canvas) return null;
+    bindMetricCanvasHover(canvas);
+    canvas._metricTargets = [];
     canvas.width = Math.max(360, canvas.parentNode.clientWidth - 40);
     var ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -2491,6 +2692,12 @@
     var c = prepareCanvas("salesCountChart");
     if (!c) return;
     var values = dailyMetricValues(sales, days, "count");
+    var labels = [];
+    for (var li = days - 1; li >= 0; li--) {
+      var ld = new Date();
+      ld.setDate(ld.getDate() - li);
+      labels.push(ld.toISOString().slice(5, 10));
+    }
     var max = Math.max.apply(Math, values.concat([1]));
     var barW = Math.max(3, (c.canvas.width - 70) / Math.max(1, values.length));
     c.ctx.fillStyle = "#eef6f1";
@@ -2498,7 +2705,11 @@
     c.ctx.fillStyle = "#295f9d";
     values.forEach(function (v, i) {
       var h = (v / max) * (c.canvas.height - 82);
-      c.ctx.fillRect(42 + i * barW, c.canvas.height - 34 - h, Math.max(2, barW - 2), h);
+      var x = 42 + i * barW;
+      var y = c.canvas.height - 34 - h;
+      var w = Math.max(2, barW - 2);
+      c.ctx.fillRect(x, y, w, h);
+      c.canvas._metricTargets.push({ type: "rect", x: x, y: Math.min(y, c.canvas.height - 34), w: w, h: Math.max(6, h), label: "<b>" + labels[i] + "</b><span>" + v + " venta(s)</span>" });
     });
     c.ctx.fillStyle = "#24211d";
     c.ctx.font = "700 14px Arial";
@@ -2522,6 +2733,10 @@
       c.ctx.closePath();
       c.ctx.fillStyle = v.color;
       c.ctx.fill();
+      if (slice > 0) c.canvas._metricTargets.push({
+        type: "slice", cx: cx, cy: cy, r: r, start: start, end: start + slice,
+        label: "<b>" + v.label + "</b><span>" + money(v.value) + " · " + percent(v.value, total) + "</span>"
+      });
       start += slice;
     });
     if (!total) {
@@ -2552,6 +2767,10 @@
       c.ctx.fillRect(132, y - 15, c.canvas.width - 162, 20);
       c.ctx.fillStyle = "#24784c";
       c.ctx.fillRect(132, y - 15, w, 20);
+      c.canvas._metricTargets.push({
+        type: "rect", x: 132, y: y - 15, w: Math.max(8, w), h: 20,
+        label: "<b>" + escapeHtml(r.name || "Producto") + "</b><span>" + money(r.subtotal) + " · " + r.qty + " vendido(s)</span>"
+      });
       c.ctx.fillStyle = "#24211d";
       c.ctx.fillText(String(r.name || "Producto").slice(0, 17), 12, y);
       c.ctx.fillText(money(r.subtotal), 140 + w, y);
@@ -2601,7 +2820,6 @@
   function renderAdmin() {
     if (!isAdmin()) return;
     all("users").then(function (users) {
-      users = users.filter(function (u) { return u.username !== "dev" && u.role !== "dev"; });
       if ($("usersSummary")) {
         $("usersSummary").innerHTML = summary([
           ["Visibles", users.length],
@@ -2637,7 +2855,7 @@
     if (!isAdmin()) return;
     all("users").then(function (users) {
       var user = users.filter(function (u) { return u.id === id; })[0];
-      if (!user || user.username === "dev" || user.role === "dev") { toast("Usuario no editable desde esta lista"); return; }
+      if (!user) { toast("Usuario no encontrado"); return; }
       $("editUserId").value = user.id;
       $("editUsername").value = user.username || "";
       $("editDisplayName").value = user.displayName || "";
@@ -2658,7 +2876,7 @@
     var id = $("editUserId").value;
     all("users").then(function (users) {
       var user = users.filter(function (u) { return u.id === id; })[0];
-      if (!user || user.username === "dev" || user.role === "dev") { toast("Usuario no editable"); return; }
+      if (!user) { toast("Usuario no encontrado"); return; }
       var username = $("editUsername").value.trim();
       if (!username) { toast("Usuario obligatorio"); $("editUsername").focus(); return; }
       var duplicate = users.filter(function (u) { return u.id !== id && u.username === username; })[0];
@@ -2670,7 +2888,8 @@
       user.username = username;
       user.displayName = $("editDisplayName").value.trim() || username;
       user.role = $("editRole").value;
-      if ($("editPassword").value !== "") user.password = $("editPassword").value;
+      var editedPassword = $("editPassword").value.trim();
+      if (editedPassword) user.password = editedPassword;
       user.active = $("editActive").value === "true";
       user.updatedAt = nowIso();
       add("users", user).then(function () {
@@ -2696,7 +2915,7 @@
     if (!isAdmin()) return;
     all("users").then(function (users) {
       var user = users.filter(function (u) { return u.id === id; })[0];
-      if (!user || user.username === "dev" || user.role === "dev") { toast("Usuario no borrable desde esta lista"); return; }
+      if (!user) { toast("Usuario no encontrado"); return; }
       if (currentUser && currentUser.id === id) { toast("No puede borrar el usuario actual"); return; }
       if (!confirm("Borrar usuario " + (user.displayName || user.username) + "?")) return;
       del("users", id).then(function () {
@@ -2714,6 +2933,7 @@
     var username = $("newUsername").value.trim();
     var password = $("newPassword").value.trim();
     if (!username) { toast("Usuario obligatorio"); return; }
+    if (!password) { toast("Clave obligatoria"); $("newPassword").focus(); return; }
     all("users").then(function (users) {
       var duplicate = users.filter(function (u) { return u.username === username; })[0];
       if (duplicate) { toast("Ya existe ese usuario"); return; }
@@ -2983,12 +3203,18 @@
     document.body.classList.add("resizing-split");
     moveSplitResize(e);
   }
+  function eventPoint(e) {
+    var point = e && e.touches && e.touches.length ? e.touches[0] : e && e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : e;
+    return { x: Number(point && point.clientX || 0), y: Number(point && point.clientY || 0) };
+  }
   function moveSplitResize(e) {
     if (!splitDrag) return;
+    if (e && e.preventDefault) e.preventDefault();
+    var point = eventPoint(e);
     var minLeft = 360;
     var minRight = 390;
     var handle = 14;
-    var leftWidth = Math.max(minLeft, Math.min(splitDrag.width - minRight - handle, e.clientX - splitDrag.left));
+    var leftWidth = Math.max(minLeft, Math.min(splitDrag.width - minRight - handle, point.x - splitDrag.left));
     splitDrag.layout.style.setProperty("--sale-width", leftWidth + "px");
     document.documentElement.style.setProperty("--sale-width", leftWidth + "px");
     if ($("devSaleWidth")) {
@@ -3018,7 +3244,9 @@
   }
   function moveShelfResize(e) {
     if (!shelfDrag) return;
-    var height = Math.max(120, Math.min(320, e.clientY - shelfDrag.top));
+    if (e && e.preventDefault) e.preventDefault();
+    var point = eventPoint(e);
+    var height = Math.max(96, Math.min(520, point.y - shelfDrag.top));
     document.documentElement.style.setProperty("--product-shelf-height", height + "px");
     if ($("devShelfHeight")) {
       $("devShelfHeight").value = Math.round(height / 10) * 10;
@@ -3036,6 +3264,12 @@
     shelfDrag = null;
     document.body.classList.remove("resizing-shelf");
   }
+  function bindResizeHandle(handle, startFn) {
+    if (!handle) return;
+    handle.onpointerdown = startFn;
+    handle.onmousedown = startFn;
+    handle.ontouchstart = startFn;
+  }
   function bind() {
     attachLoginHandlers();
     $("logoutBtn").onclick = logout;
@@ -3050,6 +3284,8 @@
     $("monthlyForm").onsubmit = saveMonthly;
     $("productionForm").onsubmit = saveProduction;
     $("productionProduct").onchange = updateProductionProductFields;
+    if ($("productionAction")) $("productionAction").onchange = updateProductionActionUi;
+    updateProductionActionUi();
     $("userForm").onsubmit = saveUser;
     if ($("userEditForm")) $("userEditForm").onsubmit = saveUserEdit;
     if ($("closeUserEditModal")) $("closeUserEditModal").onclick = closeUserEdit;
@@ -3112,16 +3348,32 @@
     $("openWithdrawBtn").onclick = openWithdrawModal;
     $("reviewPaymentsCard").onclick = openReviewTransfersModal;
     $("closeReviewTransfersModal").onclick = closeReviewTransfersModal;
-    $("splitResizeHandle").onpointerdown = startSplitResize;
-    $("shelfResizeHandle").onpointerdown = startShelfResize;
-    document.addEventListener("pointermove", function (e) { moveSplitResize(e); moveShelfResize(e); });
+    bindResizeHandle($("splitResizeHandle"), startSplitResize);
+    bindResizeHandle($("shelfResizeHandle"), startShelfResize);
+    $("cropPreview").onpointerdown = startCropDrag;
+    $("cropPreview").onmousedown = startCropDrag;
+    $("cropPreview").ontouchstart = startCropDrag;
+    document.addEventListener("pointermove", function (e) { moveSplitResize(e); moveShelfResize(e); moveCropDrag(e); });
+    document.addEventListener("mousemove", function (e) { moveSplitResize(e); moveShelfResize(e); moveCropDrag(e); });
+    document.addEventListener("touchmove", function (e) { moveSplitResize(e); moveShelfResize(e); moveCropDrag(e); }, { passive: false });
     document.addEventListener("pointerup", function () {
       stopSplitResize();
       stopShelfResize();
+      stopCropDrag();
       if (movementDragSelect) {
         movementDragSelect = null;
         if (currentTab === "Movimientos") renderMovements();
       }
+    });
+    document.addEventListener("mouseup", function () {
+      stopSplitResize();
+      stopShelfResize();
+      stopCropDrag();
+    });
+    document.addEventListener("touchend", function () {
+      stopSplitResize();
+      stopShelfResize();
+      stopCropDrag();
     });
     $("closeWithdrawModal").onclick = closeWithdrawModal;
     $("closeUndoModal").onclick = closeUndoModal;
@@ -3195,6 +3447,7 @@
       }
     });
     document.addEventListener("click", function (e) {
+      if (!e.target || !e.target.closest || !e.target.closest("#productContextMenu")) closeProductContextMenu();
       var target = e.target;
       while (target && target !== document) {
         if (target.id === "loginSubmitBtn") {
